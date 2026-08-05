@@ -1,0 +1,36 @@
+[project]
+name = "synthetic-portraits"
+version = "0.1.0"
+description = "Text prompt -> photoreal upper-body image of a person who does not exist (SDXL via ComfyUI on RunPod)."
+readme = "README.md"
+requires-python = ">=3.11"
+# Runtime is zero third-party dependency (stdlib only). Do not add runtime deps.
+dependencies = []
+
+[dependency-groups]
+# Dev-only: the quality gate. Never imported by runtime code.
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+    "ty>=0.0.1a1",
+]
+
+[tool.uv]
+# Virtual project: uv does not build/install the package itself; tests import it
+# from the source tree via pytest's pythonpath below.
+package = false
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.ty.environment]
+python-version = "3.11"

@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  gate:
+    name: ruff + ty + pytest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Sync dev environment
+        run: uv sync
+
+      - name: Lint (ruff)
+        run: uv run ruff check
+
+      - name: Type-check (ty)
+        run: uv run ty check
+
+      - name: Test (pytest)
+        run: uv run pytest
