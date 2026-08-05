@@ -1,18 +1,26 @@
-"""CLI entry point.
+"""CLI entry point: parse flags, build a request, dispatch a model, render.
 
-Phase 1 stands up the bare skeleton (arg parsing only). The real dispatch, injection,
-and rendering flags (``--model``, ``--pose-image``, ``--width``/``--height``, ``--seed``,
-``-n``) land in Phases 2 and 4.
+The transport is injectable so tests drive ``main`` against a ``FakeComfyClient`` (no GPU,
+no network). Phase 4 adds ``--pose-image`` for the OpenPose ControlNet path.
 """
 
 from __future__ import annotations
 
 import argparse
+import os
 from collections.abc import Sequence
 
-# Default portrait aspect for upper-body framing (the EmptyLatentImage dims).
-DEFAULT_WIDTH = 832
-DEFAULT_HEIGHT = 1216
+from . import pipeline
+from .models import DEFAULT_MODEL, MODELS, get_model
+from .transport import ComfyClient, ComfyTransport
+from .workflow import (
+    DEFAULT_HEIGHT,
+    DEFAULT_NEGATIVE,
+    DEFAULT_WIDTH,
+    GenerationRequest,
+)
+
+DEFAULT_SERVER = os.environ.get("COMFY_URL", "http://127.0.0.1:8188")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -21,10 +29,19 @@ def build_parser() -> argparse.ArgumentParser:
         description="Generate a photoreal upper-body image of a person who does not exist.",
     )
     parser.add_argument("--prompt", help="Text prompt describing the synthetic person.")
+    parser.add_argument(
+        "--model", default=DEFAULT_MODEL, choices=sorted(MODELS), help="Registered model to use."
+    )
+    parser.add_argument("--negative", default=DEFAULT_NEGATIVE, help="Negative prompt.")
+    parser.add_argument("--width", type=int, default=DEFAULT_WIDTH, help="Latent width.")
+    parser.add_argument("--height", type=int, default=DEFAULT_HEIGHT, help="Latent height.")
+    parser.add_argument("--seed", type=int, default=0, help="Sampler seed (reproducibility).")
+    parser.add_argument("--out", "-o", default="outputs", help="Directory for rendered images.")
+    parser.add_argument("--server", default=DEFAULT_SERVER, help="ComfyUI server URL.")
     return parser
 
 
-def main(argv: Sequence[str] | None = None) -> int:
+def main(argv: Sequence[str] | None = None, *, transport: ComfyTransport | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
@@ -32,8 +49,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.print_help()
         return 0
 
-    # Rendering is wired up in later phases.
-    raise SystemExit("generation is not implemented yet (Phase 1 skeleton)")
+    model = get_model(args.model)
+    req = GenerationRequest(
+        prompt=args.prompt,
+        negative=args.negative,
+        width=args.width,
+        height=args.height,
+        seed=args.seed,
+    )
+    client = transport if transport is not None else ComfyClient(args.server)
+
+    saved = pipeline.run(client, model, req, out_dir=args.out)
+    for path in saved:
+        print(path)
+    return 0
 
 
 if __name__ == "__main__":

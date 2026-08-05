@@ -1,6 +1,9 @@
 # Secrets & local config — never commit (holds VAULT_PROJECT_DIR + RunPod key, etc.)
 .env
 
+# Rendered scratch output (the curated demo set lives in examples/)
+outputs/
+
 # Python
 __pycache__/
 *.py[cod]
