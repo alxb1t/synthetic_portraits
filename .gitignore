@@ -1,0 +1,9 @@
+# Secrets & local config — never commit (holds VAULT_PROJECT_DIR + RunPod key, etc.)
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
