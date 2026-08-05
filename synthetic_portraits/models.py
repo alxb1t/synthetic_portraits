@@ -10,7 +10,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .workflow import GenerationRequest, Workflow, inject_txt2img
+from .workflow import GenerationRequest, Workflow, inject_pose, inject_txt2img
 
 __all__ = [
     "DEFAULT_MODEL",
@@ -46,6 +46,12 @@ MODELS: dict[str, Model] = {
         workflow_path=WORKFLOWS_DIR / "realvis-txt2img.json",
         injector=inject_txt2img,
         inputs=(),
+    ),
+    "realvis-txt2img-pose": Model(
+        name="realvis-txt2img-pose",
+        workflow_path=WORKFLOWS_DIR / "realvis-txt2img-pose.json",
+        injector=inject_pose,
+        inputs=("pose",),
     ),
 }
 
