@@ -7,10 +7,10 @@ Dispatch is a dict lookup — no ``if/elif`` chains. Phase 4 adds ``realvis-txt2
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
-from .workflow import GenerationRequest, Workflow, inject_pose, inject_txt2img
+from .workflow import GenerationRequest, Workflow, inject_txt2img
 
 __all__ = [
     "DEFAULT_MODEL",
@@ -36,8 +36,6 @@ class Model:
     name: str
     workflow_path: Path
     injector: Injector
-    # Named image inputs (roles) this model requires; prompt-only txt2img needs none.
-    inputs: tuple[str, ...] = field(default=())
 
 
 MODELS: dict[str, Model] = {
@@ -45,13 +43,6 @@ MODELS: dict[str, Model] = {
         name="realvis-txt2img",
         workflow_path=WORKFLOWS_DIR / "realvis-txt2img.json",
         injector=inject_txt2img,
-        inputs=(),
-    ),
-    "realvis-txt2img-pose": Model(
-        name="realvis-txt2img-pose",
-        workflow_path=WORKFLOWS_DIR / "realvis-txt2img-pose.json",
-        injector=inject_pose,
-        inputs=("pose",),
     ),
 }
 

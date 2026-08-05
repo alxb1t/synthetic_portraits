@@ -21,7 +21,6 @@ cat > "${COMFYUI_HOME}/extra_model_paths.yaml" <<YAML
 runpod:
   base_path: ${MODELS_DIR}
   checkpoints: checkpoints
-  controlnet: controlnet
 YAML
 
 echo "launching ComfyUI on port ${COMFYUI_PORT}"

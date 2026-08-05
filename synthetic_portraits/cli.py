@@ -1,7 +1,7 @@
 """CLI entry point: parse flags, build a request, dispatch a model, render.
 
 The transport is injectable so tests drive ``main`` against a ``FakeComfyClient`` (no GPU,
-no network). Phase 4 adds ``--pose-image`` for the OpenPose ControlNet path.
+no network). Pose is prompt-driven — described in ``--prompt``, no reference image.
 """
 
 from __future__ import annotations
@@ -36,9 +36,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--width", type=int, default=DEFAULT_WIDTH, help="Latent width.")
     parser.add_argument("--height", type=int, default=DEFAULT_HEIGHT, help="Latent height.")
     parser.add_argument("--seed", type=int, default=0, help="Sampler seed (reproducibility).")
-    parser.add_argument(
-        "--pose-image", help="Reference image for the OpenPose ControlNet path (pose models)."
-    )
     parser.add_argument("--out", "-o", default="outputs", help="Directory for rendered images.")
     parser.add_argument("--server", default=DEFAULT_SERVER, help="ComfyUI server URL.")
     return parser
@@ -53,18 +50,6 @@ def main(argv: Sequence[str] | None = None, *, transport: ComfyTransport | None 
         return 0
 
     model = get_model(args.model)
-
-    # Map the pose reference to the uniform role->file input map; validate against the
-    # model's declared inputs so each path only accepts what it uses.
-    input_files: dict[str, str] = {}
-    if args.pose_image:
-        if "pose" not in model.inputs:
-            parser.error(f"--pose-image is not valid for model {args.model!r}")
-        input_files["pose"] = args.pose_image
-    missing = [role for role in model.inputs if role not in input_files]
-    if missing:
-        parser.error(f"model {args.model!r} requires --{missing[0]}-image")
-
     req = GenerationRequest(
         prompt=args.prompt,
         negative=args.negative,
@@ -74,7 +59,7 @@ def main(argv: Sequence[str] | None = None, *, transport: ComfyTransport | None 
     )
     client = transport if transport is not None else ComfyClient(args.server)
 
-    saved = pipeline.run(client, model, req, out_dir=args.out, input_files=input_files)
+    saved = pipeline.run(client, model, req, out_dir=args.out)
     for path in saved:
         print(path)
     return 0

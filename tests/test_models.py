@@ -17,7 +17,6 @@ def test_realvis_txt2img_is_registered_with_its_injector():
     model = get_model("realvis-txt2img")
     assert model.injector is inject_txt2img
     assert model.workflow_path.name == "realvis-txt2img.json"
-    assert model.inputs == ()  # prompt-only: no named image inputs
 
 
 def test_registered_workflow_files_exist():

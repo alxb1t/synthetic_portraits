@@ -1,12 +1,12 @@
 # syntax=docker/dockerfile:1
 
-# ComfyUI GPU image: RealVisXL V5.0 txt2img + OpenPose SDXL ControlNet (DWPose).
+# ComfyUI GPU image: RealVisXL V5.0 txt2img (prompt-only; pose is prompt-driven).
 # cu128 PyTorch wheels — the Blackwell/sm_120 requirement; cu124 fails at runtime with
 # "no kernel image is available". Models are NOT baked in; they are fetched onto a
 # RunPod network volume at boot by download_models.sh (see start.sh).
 #
-# Exact upstream refs (ComfyUI / comfyui_controlnet_aux) are confirmed and relocked
-# against the live pod in Phase 5 — the image mirrors the placeholder-then-relock rule.
+# The exact ComfyUI ref is confirmed and relocked against the live pod in Phase 5 — the
+# image mirrors the placeholder-then-relock rule.
 
 ARG CUDA_IMAGE=nvidia/cuda:12.8.1-cudnn-runtime-ubuntu22.04
 FROM ${CUDA_IMAGE} AS base
@@ -36,15 +36,6 @@ WORKDIR /opt
 RUN git clone "${COMFYUI_REPO}" ComfyUI \
     && git -C ComfyUI checkout "${COMFYUI_REF}" \
     && pip3 install --no-cache-dir -r ComfyUI/requirements.txt
-
-# --- comfyui_controlnet_aux (DWPose preprocessor for the OpenPose CN path, pinned) ---
-ARG CONTROLNET_AUX_REPO=https://github.com/Fannovel16/comfyui_controlnet_aux.git
-ARG CONTROLNET_AUX_REF=83463c2e4b04e729268e57f638b23baba621b8fc
-RUN git clone "${CONTROLNET_AUX_REPO}" \
-        /opt/ComfyUI/custom_nodes/comfyui_controlnet_aux \
-    && git -C /opt/ComfyUI/custom_nodes/comfyui_controlnet_aux checkout "${CONTROLNET_AUX_REF}" \
-    && pip3 install --no-cache-dir \
-        -r /opt/ComfyUI/custom_nodes/comfyui_controlnet_aux/requirements.txt
 
 # --- sshd (for the SSH tunnel to ComfyUI's 8188) ---
 RUN mkdir -p /var/run/sshd \
