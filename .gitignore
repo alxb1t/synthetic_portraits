@@ -4,6 +4,9 @@
 # Rendered scratch output (the curated demo set lives in examples/)
 outputs/
 
+# Per-run pod state written by infra/up.sh, read by infra/down.sh
+infra/.pod_id
+
 # Python
 __pycache__/
 *.py[cod]

@@ -1,10 +1,13 @@
 name: build-image
 
-# Heavy GPU image — built deliberately (manual dispatch or a version tag), not on every
-# push. Publishes to GHCR (public) so the RunPod pod can pull it in Phases 5-6.
+# GPU image published to GHCR (public) so the RunPod pod can pull it in Phases 5-6.
+# Rebuilds on every push to main (plus manual dispatch and version tags); buildx gha
+# cache keeps unchanged-layer rebuilds cheap.
 on:
   workflow_dispatch:
   push:
+    branches:
+      - main
     tags:
       - "v*"
 
