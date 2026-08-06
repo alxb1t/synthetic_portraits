@@ -20,6 +20,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The cu128 torch + ComfyUI image is ~7 GB; default runners have only ~14 GB
+      # free, which fills mid-build and the runner is reaped (job shows "cancelled").
+      # Reclaim the preinstalled toolchains we don't use (~25 GB) before building.
+      - name: Free disk space
+        run: |
+          echo "before:"; df -h /
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android \
+            /usr/local/share/boost /usr/local/share/powershell \
+            /usr/lib/jvm "${AGENT_TOOLSDIRECTORY:-/opt/hostedtoolcache}" || true
+          sudo docker image prune -af || true
+          echo "after:"; df -h /
+
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -48,4 +60,4 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-to: type=gha,mode=min
