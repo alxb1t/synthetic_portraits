@@ -11,8 +11,10 @@ MODELS_DIR="${MODELS_DIR:-/runpod-volume/models}"
 CKPT_DIR="${MODELS_DIR}/checkpoints"
 
 # --- pinned sources ---
-REALVIS_URL="https://huggingface.co/SG161222/RealVisXL_V5.0/resolve/main/RealVisXL_V5.0.safetensors"
-REALVIS_DEST="${CKPT_DIR}/RealVisXL_V5.0.safetensors"
+# The repo ships fp16/fp32 variants — there is no bare RealVisXL_V5.0.safetensors
+# (requesting it 404s → start.sh crash-loops). fp16 is the inference build (~6.5 GB).
+REALVIS_URL="https://huggingface.co/SG161222/RealVisXL_V5.0/resolve/main/RealVisXL_V5.0_fp16.safetensors"
+REALVIS_DEST="${CKPT_DIR}/RealVisXL_V5.0_fp16.safetensors"
 
 download() {
     local url="$1" dest="$2"

@@ -3,7 +3,7 @@
     "class_type": "CheckpointLoaderSimple",
     "_meta": { "title": "Load Checkpoint" },
     "inputs": {
-      "ckpt_name": "realvisxlV50.safetensors"
+      "ckpt_name": "RealVisXL_V5.0_fp16.safetensors"
     }
   },
   "5": {

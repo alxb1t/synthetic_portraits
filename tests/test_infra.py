@@ -54,7 +54,9 @@ def test_dockerfile_launches_via_start_script():
 
 def test_download_is_idempotent_and_omits_extra_models():
     text = DOWNLOAD.read_text()
-    assert "RealVisXL_V5.0" in text
+    # Exact HF filename — the repo ships fp16/fp32 variants; the bare
+    # RealVisXL_V5.0.safetensors does NOT exist (a boot-time 404 crash-loop bug).
+    assert "RealVisXL_V5.0_fp16.safetensors" in text
     assert "skip" in text.lower()  # skips files already present
     # Prompt-only pipeline: no ControlNet and no InstantID model is fetched (a mention in a
     # comment is fine — only the download URLs are checked).
