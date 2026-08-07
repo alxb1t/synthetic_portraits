@@ -37,7 +37,7 @@
     "inputs": {
       "seed": 0,
       "steps": 30,
-      "cfg": 6.0,
+      "cfg": 5.0,
       "sampler_name": "dpmpp_2m",
       "scheduler": "karras",
       "denoise": 1.0,

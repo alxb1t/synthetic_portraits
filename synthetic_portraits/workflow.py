@@ -28,10 +28,12 @@ __all__ = [
 DEFAULT_WIDTH = 832
 DEFAULT_HEIGHT = 1216
 
-# A baseline negative prompt; tuned for hands/anatomy in Phase 5 (upper-body can show hands).
+# Hands/anatomy negative, validated on RealVisXL V5.0 in Phase 5 (upper-body can show hands).
 DEFAULT_NEGATIVE = (
-    "deformed, disfigured, bad anatomy, extra fingers, mutated hands, "
-    "blurry, low quality, watermark, text, cartoon, 3d render"
+    "deformed, distorted, disfigured, bad anatomy, extra limbs, missing limbs, "
+    "mutated hands, extra fingers, fused fingers, poorly drawn hands, poorly drawn face, "
+    "blurry, low quality, worst quality, jpeg artifacts, cartoon, anime, 3d, cgi, render, "
+    "painting, illustration, plastic skin, airbrushed, watermark, text, signature"
 )
 
 Workflow = dict[str, Any]
