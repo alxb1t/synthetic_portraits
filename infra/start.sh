@@ -6,9 +6,16 @@ COMFYUI_HOME="${COMFYUI_HOME:-/opt/ComfyUI}"
 MODELS_DIR="${MODELS_DIR:-/runpod-volume/models}"
 COMFYUI_PORT="${COMFYUI_PORT:-8188}"
 
-# sshd for the SSH tunnel that generate.py drives ComfyUI over.
+# sshd for the SSH tunnel that generate.py drives ComfyUI over. This image is FROM
+# nvidia/cuda (not a RunPod base image), so we install RunPod's injected PUBLIC_KEY
+# into authorized_keys ourselves and generate host keys before launching sshd.
 if command -v sshd >/dev/null 2>&1; then
+    mkdir -p /root/.ssh
+    printf '%s\n' "${PUBLIC_KEY:-${SSH_PUBLIC_KEY:-}}" > /root/.ssh/authorized_keys
+    chmod 700 /root/.ssh
+    chmod 600 /root/.ssh/authorized_keys
     mkdir -p /var/run/sshd
+    ssh-keygen -A
     /usr/sbin/sshd
     echo "sshd started"
 fi

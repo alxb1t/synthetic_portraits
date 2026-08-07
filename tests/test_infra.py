@@ -53,6 +53,14 @@ def test_dockerfile_installs_requests():
     assert "requests" in DOCKERFILE.read_text()
 
 
+def test_start_installs_ssh_public_key():
+    # FROM nvidia/cuda (not a RunPod base image) → start.sh must install RunPod's
+    # injected PUBLIC_KEY into authorized_keys itself, or the SSH tunnel can't auth.
+    text = START.read_text()
+    assert "PUBLIC_KEY" in text
+    assert "authorized_keys" in text
+
+
 def test_dockerfile_launches_via_start_script():
     text = DOCKERFILE.read_text()
     assert "start.sh" in text
@@ -91,6 +99,17 @@ def test_up_creates_a_gpu_pod_and_persists_its_id():
     assert "gpuTypeIds" in text
     assert "networkVolumeId" in text
     assert ".pod_id" in text  # id persisted for teardown
+
+
+def test_up_enables_ssh_tunnel_access():
+    text = UP.read_text()
+    # These SECURE + network-volume pods have no usable HTTP path (RunPod's Cloudflare
+    # proxy 403s API POSTs), so we drive ComfyUI over an SSH tunnel: inject the SSH
+    # public key, expose 22/tcp, and forward local 8188 to the pod.
+    assert "PUBLIC_KEY" in text
+    assert "22/tcp" in text
+    assert "-L" in text  # ssh local port-forward
+    assert ":localhost:" in text  # forwards the ComfyUI port through the tunnel
 
 
 def test_down_deletes_the_pod():
