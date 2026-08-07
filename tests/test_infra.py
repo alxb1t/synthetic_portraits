@@ -46,6 +46,13 @@ def test_dockerfile_pins_cu128_pytorch():
     assert "cu128" in DOCKERFILE.read_text()
 
 
+def test_dockerfile_installs_requests():
+    # ComfyUI imports `requests` (app/frontend_management.py) but does NOT declare it
+    # in its requirements.txt — the minimal CUDA base lacks it, so ComfyUI crashes at
+    # startup with ModuleNotFoundError unless we install it explicitly.
+    assert "requests" in DOCKERFILE.read_text()
+
+
 def test_dockerfile_launches_via_start_script():
     text = DOCKERFILE.read_text()
     assert "start.sh" in text

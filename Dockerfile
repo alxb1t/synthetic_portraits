@@ -35,7 +35,10 @@ ARG COMFYUI_REF=v0.3.45
 WORKDIR /opt
 RUN git clone "${COMFYUI_REPO}" ComfyUI \
     && git -C ComfyUI checkout "${COMFYUI_REF}" \
-    && pip3 install --no-cache-dir -r ComfyUI/requirements.txt
+    && pip3 install --no-cache-dir -r ComfyUI/requirements.txt \
+    # ComfyUI imports `requests` (app/frontend_management.py) but omits it from
+    # requirements.txt; the minimal CUDA base lacks it → startup crash without this.
+    && pip3 install --no-cache-dir requests
 
 # --- sshd (for the SSH tunnel to ComfyUI's 8188) ---
 RUN mkdir -p /var/run/sshd \
