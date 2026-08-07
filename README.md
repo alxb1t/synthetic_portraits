@@ -1,12 +1,13 @@
 # synthetic_portraits
 
 A self-hosted, headless pipeline: **text prompt → photoreal upper-body image of a person
-who does not exist** — face, torso, arms, and clothes — using open SDXL models
+who does not exist** — face, torso, arms, hands, and clothes — using open SDXL models
 (**RealVisXL V5.0**) via **ComfyUI** on an on-demand **RunPod** GPU.
 
-One prompt → one person; another prompt → another person. Clothing, a visible tattoo, and
-pose are all driven from the prompt. Every image is framed as **upper-body** so it always
-contains one large, clear, frontal face.
+One prompt → one person; another prompt → another person. Clothing and pose are driven from
+the prompt; hands are shown by default (SDXL hand quality varies — sharpening it is a v0.2
+item). Every image is framed as **upper-body** so it always contains one large, clear,
+frontal face.
 
 > ## ⚠️ AI-generated people — not real individuals
 >
@@ -69,7 +70,8 @@ infra/down.sh
 `--width` / `--height` (default 832×1216), `--seed`, `-n/--count`, `--out`, `--server`.
 
 The demo-input set for the consumer lives in [`examples/`](examples/) — upper-body shots in
-varied poses and clothing, one with a visible tattoo, each verified by `check_face.py`.
+varied poses and clothing, each verified by `check_face.py` to contain exactly one
+antelopev2-detectable frontal face.
 
 ## Development
 

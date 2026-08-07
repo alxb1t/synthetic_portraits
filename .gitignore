@@ -7,6 +7,9 @@ outputs/
 # Per-run pod state written by infra/up.sh, read by infra/down.sh
 infra/.pod_id
 
+# macOS
+.DS_Store
+
 # Python
 __pycache__/
 *.py[cod]

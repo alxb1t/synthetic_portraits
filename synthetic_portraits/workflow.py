@@ -31,7 +31,7 @@ DEFAULT_HEIGHT = 1216
 # Hands/anatomy negative, validated on RealVisXL V5.0 in Phase 5 (upper-body can show hands).
 DEFAULT_NEGATIVE = (
     "deformed, distorted, disfigured, bad anatomy, extra limbs, missing limbs, "
-    "mutated hands, extra fingers, fused fingers, poorly drawn hands, poorly drawn face, "
+    "poorly drawn face, "
     "blurry, low quality, worst quality, jpeg artifacts, cartoon, anime, 3d, cgi, render, "
     "painting, illustration, plastic skin, airbrushed, watermark, text, signature"
 )
