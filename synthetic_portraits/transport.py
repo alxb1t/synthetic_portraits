@@ -92,9 +92,7 @@ def await_outputs(
                 raise ComfyExecutionError(_describe_error(status, prompt_id))
             return entry.get("outputs", {})
         sleep(interval)
-    raise ComfyTimeoutError(
-        f"prompt {prompt_id} did not complete within {max_polls} polls"
-    )
+    raise ComfyTimeoutError(f"prompt {prompt_id} did not complete within {max_polls} polls")
 
 
 def _describe_error(status: dict[str, Any], prompt_id: str) -> str:
@@ -199,16 +197,15 @@ def _read_http_error(exc: HTTPError) -> str:
 
 _DEFAULT_OUTPUTS: dict[str, Any] = {
     "9": {
-        "images": [
-            {"filename": "synthetic_portrait_00001_.png", "subfolder": "", "type": "output"}
-        ]
+        "images": [{"filename": "synthetic_portrait_00001_.png", "subfolder": "", "type": "output"}]
     }
 }
 
 # A 1x1 PNG so ``get_image`` returns plausible image bytes by default.
 _ONE_PX_PNG = bytes.fromhex(
     "89504e470d0a1a0a0000000d494844520000000100000001080600000"
-    "01f15c4890000000d49444154789c6360000002000100" "05000106a9a06c0000000049454e44ae426082"
+    "01f15c4890000000d49444154789c6360000002000100"
+    "05000106a9a06c0000000049454e44ae426082"
 )
 
 

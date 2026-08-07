@@ -14,6 +14,14 @@ dev = [
     "ruff>=0.6",
     "ty>=0.0.1a1",
 ]
+# Optional: only for running scripts/check_face.py for real (offline, on the host).
+# Kept out of `dev` so the CI gate stays light — the face-check tests mock the detector.
+# insightface auto-downloads the antelopev2 model pack on first run.
+faces = [
+    "insightface>=0.7",
+    "onnxruntime>=1.17",
+    "opencv-python-headless>=4.9",
+]
 
 [tool.uv]
 # Virtual project: uv does not build/install the package itself; tests import it
@@ -21,7 +29,7 @@ dev = [
 package = false
 
 [tool.pytest.ini_options]
-pythonpath = ["."]
+pythonpath = [".", "scripts"]
 testpaths = ["tests"]
 addopts = "-q"
 
@@ -34,3 +42,10 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 
 [tool.ty.environment]
 python-version = "3.11"
+extra-paths = ["scripts"]
+
+[tool.ty.rules]
+# check_face.py's insightface/cv2 imports need `ty: ignore[unresolved-import]` in CI
+# (the optional `faces` group isn't installed there); when `faces` IS installed the
+# ignore looks unused. Silence that so the gate is clean in both environments.
+unused-ignore-comment = "ignore"

@@ -36,6 +36,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--width", type=int, default=DEFAULT_WIDTH, help="Latent width.")
     parser.add_argument("--height", type=int, default=DEFAULT_HEIGHT, help="Latent height.")
     parser.add_argument("--seed", type=int, default=0, help="Sampler seed (reproducibility).")
+    parser.add_argument(
+        "-n",
+        "--count",
+        type=int,
+        default=1,
+        help="Number of images to render (consecutive seeds from --seed).",
+    )
     parser.add_argument("--out", "-o", default="outputs", help="Directory for rendered images.")
     parser.add_argument("--server", default=DEFAULT_SERVER, help="ComfyUI server URL.")
     return parser
@@ -50,16 +57,19 @@ def main(argv: Sequence[str] | None = None, *, transport: ComfyTransport | None 
         return 0
 
     model = get_model(args.model)
-    req = GenerationRequest(
-        prompt=args.prompt,
-        negative=args.negative,
-        width=args.width,
-        height=args.height,
-        seed=args.seed,
-    )
     client = transport if transport is not None else ComfyClient(args.server)
 
-    saved = pipeline.run(client, model, req, out_dir=args.out)
+    saved = []
+    for offset in range(max(1, args.count)):
+        req = GenerationRequest(
+            prompt=args.prompt,
+            negative=args.negative,
+            width=args.width,
+            height=args.height,
+            seed=args.seed + offset,
+        )
+        saved.extend(pipeline.run(client, model, req, out_dir=args.out))
+
     for path in saved:
         print(path)
     return 0

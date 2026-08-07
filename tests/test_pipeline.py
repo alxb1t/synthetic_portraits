@@ -25,7 +25,8 @@ def test_run_uploads_zero_inputs_for_prompt_only_and_saves_render(tmp_path):
     assert len(fake.queued_workflows) == 1
     queued = fake.queued_workflows[0]
     positive = next(
-        n for n in queued.values()
+        n
+        for n in queued.values()
         if n["class_type"] == "CLIPTextEncode" and "Positive" in n["_meta"]["title"]
     )
     assert positive["inputs"]["text"] == "a photoreal upper-body portrait"

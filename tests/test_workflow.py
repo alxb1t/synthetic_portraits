@@ -40,9 +40,9 @@ def test_inject_sets_negative_prompt_on_the_negative_encoder(txt2img_workflow):
     result = inject_txt2img(txt2img_workflow, req)
 
     # The negative encoder is the one the KSampler's `negative` input resolves to.
-    neg_link = next(
-        n for n in result.values() if n["class_type"] == "KSampler"
-    )["inputs"]["negative"]
+    neg_link = next(n for n in result.values() if n["class_type"] == "KSampler")["inputs"][
+        "negative"
+    ]
     assert result[neg_link[0]]["inputs"]["text"] == "extra fingers, blurry"
 
 

@@ -28,7 +28,8 @@ def test_no_prompt_prints_help_and_returns_zero(capsys):
 
 def _queued_positive_text(fake: FakeComfyClient) -> str:
     node = next(
-        n for n in fake.queued_workflows[0].values()
+        n
+        for n in fake.queued_workflows[0].values()
         if n["class_type"] == "CLIPTextEncode" and "Positive" in n["_meta"]["title"]
     )
     return node["inputs"]["text"]
@@ -71,6 +72,29 @@ def test_main_honours_width_height_overrides(tmp_path):
         n for n in fake.queued_workflows[0].values() if n["class_type"] == "EmptyLatentImage"
     )
     assert (latent["inputs"]["width"], latent["inputs"]["height"]) == (768, 1152)
+
+
+def test_main_count_renders_n_images_with_consecutive_seeds(tmp_path):
+    fake = FakeComfyClient()
+
+    rc = cli.main(
+        ["--prompt", "p", "--seed", "10", "-n", "3", "--out", str(tmp_path)],
+        transport=fake,
+    )
+
+    assert rc == 0
+    assert len(fake.queued_workflows) == 3
+    seeds = [
+        next(n for n in wf.values() if n["class_type"] == "KSampler")["inputs"]["seed"]
+        for wf in fake.queued_workflows
+    ]
+    assert seeds == [10, 11, 12]  # reproducible: seed, seed+1, seed+2
+
+
+def test_main_defaults_to_a_single_image(tmp_path):
+    fake = FakeComfyClient()
+    cli.main(["--prompt", "p", "--out", str(tmp_path)], transport=fake)
+    assert len(fake.queued_workflows) == 1
 
 
 def test_main_rejects_unknown_model(tmp_path):
