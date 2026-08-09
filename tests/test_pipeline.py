@@ -72,7 +72,10 @@ def test_accepts_first_render_when_one_face(tmp_path):
     model = get_model("realvis-txt2img")
 
     outcome = pipeline.run(
-        fake, model, GenerationRequest(prompt="p", seed=5), out_dir=tmp_path,
+        fake,
+        model,
+        GenerationRequest(prompt="p", seed=5),
+        out_dir=tmp_path,
         detector=FakeFaceDetector([1]),
     )
 
@@ -104,8 +107,12 @@ def test_exhausts_attempts_keeps_last_render_and_reports_failure(tmp_path):
     det = FakeFaceDetector([0])  # never one face
 
     outcome = pipeline.run(
-        fake, model, GenerationRequest(prompt="p", seed=7), out_dir=tmp_path,
-        detector=det, max_attempts=3,
+        fake,
+        model,
+        GenerationRequest(prompt="p", seed=7),
+        out_dir=tmp_path,
+        detector=det,
+        max_attempts=3,
     )
 
     assert outcome.detected is False
@@ -181,9 +188,7 @@ def test_uploads_named_input_and_wires_it_to_loadimage_by_role(tmp_path, monkeyp
     # Point a throwaway model at the stub graph so we exercise the LoadImage wiring.
     wf_path = tmp_path / "stub.json"
     wf_path.write_text(json.dumps(_STUB_WITH_LOADIMAGE))
-    model = models.Model(
-        name="stub", workflow_path=wf_path, injector=models.inject_txt2img
-    )
+    model = models.Model(name="stub", workflow_path=wf_path, injector=models.inject_txt2img)
 
     fake = FakeComfyClient()
     req = GenerationRequest(

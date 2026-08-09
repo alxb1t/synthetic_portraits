@@ -110,6 +110,18 @@ def test_main_rejects_unknown_model(tmp_path):
     assert exc.value.code != 0
 
 
+def test_main_rejects_selecting_the_internal_identity_graph_by_name(tmp_path):
+    # The identity graph is auto-selected by --identity (a hero image), never chosen by name:
+    # picking it without a hero queues a graph whose LoadImage still holds a placeholder, which
+    # only fails at GPU time. It must not be a user-facing --model choice.
+    from synthetic_portraits.models import IDENTITY_MODEL
+
+    argv = ["--prompt", "p", "--model", IDENTITY_MODEL, "--out", str(tmp_path)]
+    with pytest.raises(SystemExit) as exc:
+        cli.main(argv, transport=FakeComfyClient(), detector=_ACCEPT)
+    assert exc.value.code != 0
+
+
 def test_main_returns_nonzero_and_summarizes_when_a_face_check_fails(tmp_path, capsys):
     fake = FakeComfyClient()
     # Both renders never reach one face -> both exhaust their attempts.

@@ -186,9 +186,7 @@ def test_hardened_fixture_has_hires_and_facedetailer_topology(txt2img_workflow):
 
 def test_hires_second_ksampler_resamples_the_upscaled_latent(txt2img_workflow):
     # The hi-res KSampler's latent must come (via LatentUpscaleBy) from the base KSampler.
-    upscale = next(
-        n for n in txt2img_workflow.values() if n["class_type"] == "LatentUpscaleBy"
-    )
+    upscale = next(n for n in txt2img_workflow.values() if n["class_type"] == "LatentUpscaleBy")
     src_id = upscale["inputs"]["samples"][0]
     assert txt2img_workflow[src_id]["class_type"] == "KSampler"  # fed by the base sampler
 

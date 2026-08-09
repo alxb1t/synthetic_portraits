@@ -20,6 +20,7 @@ __all__ = [
     "DEFAULT_MODEL",
     "IDENTITY_MODEL",
     "MODELS",
+    "SELECTABLE_MODELS",
     "Model",
     "UnknownModelError",
     "get_model",
@@ -58,6 +59,15 @@ MODELS: dict[str, Model] = {
 
 DEFAULT_MODEL = "realvis-txt2img"
 IDENTITY_MODEL = "realvis-txt2img-identity"
+
+# The user-selectable ``--model`` menu. The identity graph is deliberately excluded: it is an
+# internal implementation detail auto-selected by ``--identity`` (which uploads the hero), never
+# chosen by name. Selecting it without a hero would queue a graph whose ``LoadImage`` still holds
+# a placeholder — a footgun that only surfaces at (paid) GPU time. It stays in ``MODELS`` for
+# internal dispatch but is kept off the menu.
+SELECTABLE_MODELS: tuple[str, ...] = tuple(
+    sorted(name for name in MODELS if name != IDENTITY_MODEL)
+)
 
 
 def get_model(name: str) -> Model:

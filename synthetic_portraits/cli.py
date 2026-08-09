@@ -16,7 +16,7 @@ from pathlib import Path
 from . import pipeline
 from .batch import read_prompts, slugify
 from .faces import FaceDetector, default_face_detector
-from .models import DEFAULT_MODEL, IDENTITY_MODEL, MODELS, get_model
+from .models import DEFAULT_MODEL, IDENTITY_MODEL, SELECTABLE_MODELS, get_model
 from .transport import ComfyClient, ComfyTransport
 from .workflow import (
     DEFAULT_HEIGHT,
@@ -48,7 +48,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Reference face (hero) image; produces that same person via InstantID.",
     )
     parser.add_argument(
-        "--model", default=DEFAULT_MODEL, choices=sorted(MODELS), help="Registered model to use."
+        "--model",
+        default=DEFAULT_MODEL,
+        choices=SELECTABLE_MODELS,
+        help="Registered model to use (the identity graph is auto-selected by --identity).",
     )
     parser.add_argument("--negative", default=DEFAULT_NEGATIVE, help="Negative prompt.")
     parser.add_argument("--width", type=int, default=DEFAULT_WIDTH, help="Latent width.")
