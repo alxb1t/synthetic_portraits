@@ -46,6 +46,29 @@ def test_dockerfile_pins_cu128_pytorch():
     assert "cu128" in DOCKERFILE.read_text()
 
 
+def test_dockerfile_pins_v0_2_custom_nodes():
+    # InstantID + FaceDetailer (Impact Pack + Subpack) nodes, pinned to the exact commits
+    # verified in v0.2_research (Phase 0). Pins, not floating HEAD — reproducible builds.
+    text = DOCKERFILE.read_text()
+    assert "ComfyUI_InstantID" in text
+    assert "72495e806bc2ab9c41581e15ccaa1bcf83c477e8" in text
+    assert "ComfyUI-Impact-Pack" in text
+    assert "429d0159ad429e64d2b3916e6e7be9c22d025c3c" in text
+    assert "ComfyUI-Impact-Subpack" in text
+    assert "50c7b71a6a224734cc9b21963c6d1926816a97f1" in text
+
+
+def test_dockerfile_installs_face_and_detailer_deps_cpu_only():
+    text = DOCKERFILE.read_text()
+    # insightface + CPU onnxruntime + ultralytics; the Impact Pack numpy<2 ceiling pinned.
+    assert "insightface" in text
+    assert "onnxruntime" in text
+    assert "ultralytics" in text
+    assert "numpy<2" in text
+    # Never the GPU onnxruntime (Blackwell/cu128 CUDA-match pain; never install both).
+    assert "onnxruntime-gpu" not in text
+
+
 def test_dockerfile_installs_requests():
     # ComfyUI imports `requests` (app/frontend_management.py) but does NOT declare it
     # in its requirements.txt — the minimal CUDA base lacks it, so ComfyUI crashes at
@@ -67,17 +90,35 @@ def test_dockerfile_launches_via_start_script():
     assert 'CMD ["/opt/start.sh"]' in text
 
 
-def test_download_is_idempotent_and_omits_extra_models():
+def test_download_is_idempotent_and_fetches_the_v0_2_model_set():
     text = DOWNLOAD.read_text()
     # Exact HF filename — the repo ships fp16/fp32 variants; the bare
     # RealVisXL_V5.0.safetensors does NOT exist (a boot-time 404 crash-loop bug).
     assert "RealVisXL_V5.0_fp16.safetensors" in text
-    assert "skip" in text.lower()  # skips files already present
-    # Prompt-only pipeline: no ControlNet and no InstantID model is fetched (a mention in a
-    # comment is fine — only the download URLs are checked).
+    assert "skip" in text.lower()  # skips files already present (idempotent)
     url_lines = [ln for ln in text.splitlines() if "https://" in ln]
-    assert not any("instantid" in ln.lower() for ln in url_lines)
-    assert not any("controlnet" in ln.lower() for ln in url_lines)
+    # v0.2 adds the InstantID stack + the FaceDetailer bbox model, from the pinned sources.
+    assert any("InstantX/InstantID" in ln and "ip-adapter.bin" in ln for ln in url_lines)
+    assert any("ControlNetModel" in ln for ln in url_lines)  # identity ControlNet
+    assert any("antelopev2" in ln for ln in url_lines)  # the 5-file insightface pack
+    assert any("face_yolov8m.pt" in ln for ln in url_lines)  # FaceDetailer bbox detector
+
+
+def test_download_isolates_models_into_their_target_dirs():
+    text = DOWNLOAD.read_text()
+    # Subfolder-isolated targets (dodge generic-filename collisions like config.json).
+    assert "instantid" in text  # models/instantid/ip-adapter.bin
+    assert "controlnet" in text  # models/controlnet/...
+    assert "insightface/models/antelopev2" in text  # the antelopev2 pack's ComfyUI path
+    assert "ultralytics/bbox" in text  # face_yolov8m.pt
+
+
+def test_start_maps_the_v0_2_model_dirs_into_comfyui():
+    # ComfyUI code is in the image, weights on the volume — extra_model_paths must expose
+    # the new model folders (controlnet/instantid/ultralytics/insightface), not just checkpoints.
+    text = START.read_text()
+    for folder in ("controlnet", "instantid", "ultralytics", "insightface"):
+        assert folder in text, folder
 
 
 def test_pod_scripts_use_runpod_rest_api():

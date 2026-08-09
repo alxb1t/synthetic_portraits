@@ -24,10 +24,16 @@ fi
 /opt/download_models.sh
 
 # Point ComfyUI at the volume's models (code is in the image, weights are on the volume).
+# v0.2 exposes the InstantID + FaceDetailer folders too, not just checkpoints; insightface
+# maps the antelopev2 pack (both InstantIDFaceAnalysis and the face gate resolve it there).
 cat > "${COMFYUI_HOME}/extra_model_paths.yaml" <<YAML
 runpod:
   base_path: ${MODELS_DIR}
   checkpoints: checkpoints
+  controlnet: controlnet
+  instantid: instantid
+  ultralytics: ultralytics
+  insightface: insightface
 YAML
 
 echo "launching ComfyUI on port ${COMFYUI_PORT}"
