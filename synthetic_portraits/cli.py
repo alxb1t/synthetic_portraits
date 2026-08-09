@@ -8,9 +8,11 @@ from __future__ import annotations
 
 import argparse
 import os
+import sys
 from collections.abc import Sequence
 
 from . import pipeline
+from .faces import FaceDetector, default_face_detector
 from .models import DEFAULT_MODEL, MODELS, get_model
 from .transport import ComfyClient, ComfyTransport
 from .workflow import (
@@ -48,7 +50,12 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: Sequence[str] | None = None, *, transport: ComfyTransport | None = None) -> int:
+def main(
+    argv: Sequence[str] | None = None,
+    *,
+    transport: ComfyTransport | None = None,
+    detector: FaceDetector | None = None,
+) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
@@ -58,8 +65,11 @@ def main(argv: Sequence[str] | None = None, *, transport: ComfyTransport | None 
 
     model = get_model(args.model)
     client = transport if transport is not None else ComfyClient(args.server)
+    face_detector = detector if detector is not None else default_face_detector()
 
     saved = []
+    failures = 0
+    total = 0
     for offset in range(max(1, args.count)):
         req = GenerationRequest(
             prompt=args.prompt,
@@ -68,10 +78,26 @@ def main(argv: Sequence[str] | None = None, *, transport: ComfyTransport | None 
             height=args.height,
             seed=args.seed + offset,
         )
-        saved.extend(pipeline.run(client, model, req, out_dir=args.out))
+        outcome = pipeline.run(client, model, req, out_dir=args.out, detector=face_detector)
+        saved.extend(outcome.paths)
+        total += 1
+        if not outcome.detected:
+            failures += 1
+            print(
+                f"WARNING: no single antelopev2 face after {outcome.attempts} attempts "
+                f"(seed {req.seed}) — kept last render",
+                file=sys.stderr,
+            )
 
     for path in saved:
         print(path)
+
+    if failures:
+        print(
+            f"{failures}/{total} images failed face detection (kept, but undetected)",
+            file=sys.stderr,
+        )
+        return 1
     return 0
 
 

@@ -15,6 +15,7 @@ from synthetic_portraits.workflow import (
     GenerationRequest,
     WorkflowError,
     inject_txt2img,
+    set_named_inputs,
 )
 
 
@@ -115,3 +116,52 @@ def test_inject_raises_when_ksampler_is_missing():
     graph = {"x": {"class_type": "VAEDecode", "inputs": {}}}
     with pytest.raises(WorkflowError, match="KSampler"):
         inject_txt2img(graph, GenerationRequest(prompt="p"))
+
+
+# --- multi-input wiring: role -> LoadImage by title, not by id --------------
+
+
+def _graph_with_load_image() -> dict:
+    return {
+        "1": {
+            "class_type": "LoadImage",
+            "_meta": {"title": "Load Image (identity)"},
+            "inputs": {"image": "PLACEHOLDER"},
+        },
+        "2": {
+            "class_type": "SaveImage",
+            "_meta": {"title": "Save Image"},
+            "inputs": {"images": ["1", 0]},
+        },
+    }
+
+
+def test_set_named_inputs_wires_server_name_onto_loadimage_by_role():
+    wf = _graph_with_load_image()
+
+    set_named_inputs(wf, {"identity": "hero_srv.png"})
+
+    assert wf["1"]["inputs"]["image"] == "hero_srv.png"
+
+
+def test_set_named_inputs_matches_role_case_insensitively():
+    wf = _graph_with_load_image()
+
+    set_named_inputs(wf, {"IDENTITY": "hero_srv.png"})
+
+    assert wf["1"]["inputs"]["image"] == "hero_srv.png"
+
+
+def test_set_named_inputs_empty_map_is_a_noop():
+    wf = _graph_with_load_image()
+    before = copy.deepcopy(wf)
+
+    set_named_inputs(wf, {})
+
+    assert wf == before
+
+
+def test_set_named_inputs_raises_when_no_loadimage_matches_the_role():
+    wf = _graph_with_load_image()
+    with pytest.raises(WorkflowError, match="pose"):
+        set_named_inputs(wf, {"pose": "x.png"})

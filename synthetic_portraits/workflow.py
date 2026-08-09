@@ -20,8 +20,10 @@ __all__ = [
     "DEFAULT_NEGATIVE",
     "DEFAULT_WIDTH",
     "GenerationRequest",
+    "NamedInput",
     "WorkflowError",
     "inject_txt2img",
+    "set_named_inputs",
 ]
 
 # Default portrait aspect for upper-body framing (the EmptyLatentImage dims).
@@ -44,6 +46,19 @@ class WorkflowError(Exception):
 
 
 @dataclass(frozen=True)
+class NamedInput:
+    """One image the pipeline uploads and wires to a ``LoadImage`` node **by role**.
+
+    ``role`` matches the target ``LoadImage`` node's title (e.g. ``"identity"`` for the hero
+    image); ``filename`` is the name to upload as; ``data`` is the raw image bytes.
+    """
+
+    role: str
+    filename: str
+    data: bytes
+
+
+@dataclass(frozen=True)
 class GenerationRequest:
     """Everything the injector + pipeline need to render one image."""
 
@@ -52,6 +67,8 @@ class GenerationRequest:
     width: int = DEFAULT_WIDTH
     height: int = DEFAULT_HEIGHT
     seed: int = 0
+    # Named image inputs to upload + wire by role (empty on the default prompt-only path).
+    inputs: tuple[NamedInput, ...] = ()
 
 
 def inject_txt2img(workflow: Workflow, req: GenerationRequest) -> Workflow:
@@ -76,7 +93,32 @@ def inject_txt2img(workflow: Workflow, req: GenerationRequest) -> Workflow:
     return wf
 
 
+def set_named_inputs(workflow: Workflow, uploaded: dict[str, str]) -> Workflow:
+    """Wire each ``role -> server_name`` onto its ``LoadImage`` node **in place**, by title.
+
+    Generalizes v0.1's zero-input assumption: the pipeline uploads N named inputs and points
+    each ``LoadImage`` at the uploaded name — matched by the node's role/title (like
+    injection-by-trace), never by a hardcoded id. Raises :class:`WorkflowError` if a declared
+    role has no matching ``LoadImage`` node. An empty map is a no-op (the default path).
+    """
+    for role, server_name in uploaded.items():
+        node = _find_load_image_by_role(workflow, role)
+        node["inputs"]["image"] = server_name
+    return workflow
+
+
 # --- graph tracing helpers --------------------------------------------------
+
+
+def _find_load_image_by_role(workflow: Workflow, role: str) -> dict[str, Any]:
+    needle = role.casefold()
+    for node in workflow.values():
+        if node.get("class_type") != "LoadImage":
+            continue
+        title = node.get("_meta", {}).get("title", "")
+        if needle in title.casefold():
+            return node
+    raise WorkflowError(f"no LoadImage node for role {role!r}")
 
 
 def _find_by_class(workflow: Workflow, class_type: str) -> dict[str, Any]:

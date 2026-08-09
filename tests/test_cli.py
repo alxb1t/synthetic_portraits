@@ -5,7 +5,10 @@ from __future__ import annotations
 import pytest
 
 from synthetic_portraits import cli
+from synthetic_portraits.faces import FakeFaceDetector
 from synthetic_portraits.transport import FakeComfyClient
+
+_ACCEPT = FakeFaceDetector([1])  # every render passes the face check on the first attempt
 
 
 def test_cli_help_exits_cleanly(capsys):
@@ -41,6 +44,7 @@ def test_main_threads_prompt_and_seed_through_to_the_queued_workflow(tmp_path):
     rc = cli.main(
         ["--prompt", "a woman with a tattoo", "--seed", "7", "--out", str(tmp_path)],
         transport=fake,
+        detector=_ACCEPT,
     )
 
     assert rc == 0
@@ -52,7 +56,7 @@ def test_main_threads_prompt_and_seed_through_to_the_queued_workflow(tmp_path):
 def test_main_defaults_to_portrait_832x1216(tmp_path):
     fake = FakeComfyClient()
 
-    cli.main(["--prompt", "p", "--out", str(tmp_path)], transport=fake)
+    cli.main(["--prompt", "p", "--out", str(tmp_path)], transport=fake, detector=_ACCEPT)
 
     latent = next(
         n for n in fake.queued_workflows[0].values() if n["class_type"] == "EmptyLatentImage"
@@ -66,6 +70,7 @@ def test_main_honours_width_height_overrides(tmp_path):
     cli.main(
         ["--prompt", "p", "--width", "768", "--height", "1152", "--out", str(tmp_path)],
         transport=fake,
+        detector=_ACCEPT,
     )
 
     latent = next(
@@ -80,6 +85,7 @@ def test_main_count_renders_n_images_with_consecutive_seeds(tmp_path):
     rc = cli.main(
         ["--prompt", "p", "--seed", "10", "-n", "3", "--out", str(tmp_path)],
         transport=fake,
+        detector=_ACCEPT,
     )
 
     assert rc == 0
@@ -93,12 +99,41 @@ def test_main_count_renders_n_images_with_consecutive_seeds(tmp_path):
 
 def test_main_defaults_to_a_single_image(tmp_path):
     fake = FakeComfyClient()
-    cli.main(["--prompt", "p", "--out", str(tmp_path)], transport=fake)
+    cli.main(["--prompt", "p", "--out", str(tmp_path)], transport=fake, detector=_ACCEPT)
     assert len(fake.queued_workflows) == 1
 
 
 def test_main_rejects_unknown_model(tmp_path):
     argv = ["--prompt", "p", "--model", "nope", "--out", str(tmp_path)]
     with pytest.raises(SystemExit) as exc:
-        cli.main(argv, transport=FakeComfyClient())
+        cli.main(argv, transport=FakeComfyClient(), detector=_ACCEPT)
     assert exc.value.code != 0
+
+
+def test_main_returns_nonzero_and_summarizes_when_a_face_check_fails(tmp_path, capsys):
+    fake = FakeComfyClient()
+    # Both renders never reach one face -> both exhaust their attempts.
+    det = FakeFaceDetector([0])
+
+    rc = cli.main(
+        ["--prompt", "p", "-n", "2", "--out", str(tmp_path)],
+        transport=fake,
+        detector=det,
+    )
+
+    assert rc != 0
+    err = capsys.readouterr().err
+    assert "2/2" in err  # summary line: how many images were kept-but-undetected
+
+
+def test_main_all_faces_detected_returns_zero_and_no_warning(tmp_path, capsys):
+    fake = FakeComfyClient()
+
+    rc = cli.main(
+        ["--prompt", "p", "-n", "2", "--out", str(tmp_path)],
+        transport=fake,
+        detector=FakeFaceDetector([1]),
+    )
+
+    assert rc == 0
+    assert capsys.readouterr().err == ""
