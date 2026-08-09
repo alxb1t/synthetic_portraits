@@ -5,8 +5,9 @@ exist** (open SDXL models via ComfyUI on an on-demand RunPod GPU). The output fe
 face-identity anime-restyle pipeline (**"the consumer"**), which is why every image must contain one
 clear, frontal, **antelopev2-detectable** face.
 
-**You (Claude Code) write the code.** The human reviews each phase's diff, commits, and approves the
-next phase.
+**You (Claude Code) write the code**, test-first. For local ($0) phases you commit each green phase and
+continue autonomously; you pause for the human only before a **metered (GPU) phase** or on genuine
+ambiguity. The active plan's phase workflow contract is authoritative (see below).
 
 ---
 
@@ -20,21 +21,21 @@ in **`.env`** (gitignored) as **`VAULT_PROJECT_DIR`**.
 1. Read `.env` and load `VAULT_PROJECT_DIR` — the absolute path to the vault project folder. If it is
    missing, copy `.env.example` → `.env` and ask the human to fill it in. **Never hardcode or print the
    real path in committed files.**
-2. Read `$VAULT_PROJECT_DIR/implementation_plan_v0.1.md`. It is the source of truth for scope,
-   decisions, architecture, the repo layout, the engineering conventions, and the per-phase steps.
+2. Read the **latest implementation plan** in `$VAULT_PROJECT_DIR/implementation_plans/` — the
+   `vX.Y_implementation_plan.md` file with the **highest version number**. It is the source of truth for
+   scope, decisions, architecture, the repo layout, the engineering conventions, the per-phase steps,
+   **and the phase workflow contract (how and when you commit, and when you pause).** Lower-versioned
+   `vX.Y_implementation_plan.md` files are completed predecessors — historical record only; don't
+   execute them.
 3. Find your place: the plan's `current_phase` frontmatter + the **Progress ledger** (bottom of the
-   plan), then the tail of `$VAULT_PROJECT_DIR/log.md`.
+   plan), then the latest entries at the **top** of `$VAULT_PROJECT_DIR/log.md`, then (if the plan
+   references it) its Phase-0 research file.
 4. Resume at `current_phase`. Work **one phase at a time, in order.**
 
-The vault project folder contains:
-
-```
-$VAULT_PROJECT_DIR/
-├── implementation_plan_v0.1.md   ← THE PLAN (read first, every session)
-├── overview.md                   ← project state
-├── log.md                        ← chronological log (append at each phase)
-└── tasks.md                      ← open task checklist
-```
+Plans and their research files live in `$VAULT_PROJECT_DIR/implementation_plans/` (version-prefixed, e.g.
+`v0.2_implementation_plan.md`, `v0.2_research.md`); the project's `overview.md`, `log.md`, and `backlog.md`
+sit at `$VAULT_PROJECT_DIR/`. Browse the folder yourself; if anything is unclear, ask the human rather
+than guessing.
 
 Do not re-derive decisions already settled in the plan. If something there conflicts with reality,
 raise it with the human rather than silently diverging.
@@ -57,29 +58,31 @@ ruff + ty + pytest on every push. Full conventions are in the plan (§ Engineeri
 
 ## The per-phase loop (do this at the end of every phase)
 
-When the quality gate is fully green for the current phase:
+**The active plan's § "phase workflow contract & metered protocol" is authoritative — follow it.** In
+brief, when the quality gate is fully green for the current phase:
 
 1. **Bookkeeping in the vault** (under `$VAULT_PROJECT_DIR`):
-   - append a dated entry to `log.md` (`## [YYYY-MM-DD] <verb> | <title>` + what changed, test count,
-     gate status);
-   - check off / add items in `tasks.md`;
-   - update `overview.md` (Current state, Recent activity, bump `updated`/Last activity) **and** the
-     plan's `current_phase` frontmatter + the **Progress ledger** row.
-2. **Provide a git commit message** (Conventional-Commits style) in chat. **Do not commit yourself** —
-   the human reviews the diff and commits.
-3. **Stop and wait** for the human's explicit approval before starting the next phase.
-
-Only after approval do you begin the next phase.
+   - **prepend** a dated entry at the **top** of `log.md` (`## [YYYY-MM-DD] <verb> | <title>` + what
+     changed, test count, gate status) — newest first;
+   - record any deferred / next-version work in `backlog.md`;
+   - update `overview.md` **Current state** (bump `updated`/Last activity) **and** the plan's
+     `current_phase` frontmatter + the **Progress ledger** row.
+2. **Commit** the phase with a Conventional-Commits message (in this code repo; the vault bookkeeping is
+   not part of this commit).
+3. **Continue autonomously into the next phase** when it is local ($0). **Stop and wait for the human**
+   only before a **metered (GPU) phase** or on **genuine ambiguity/doubt** — then ask one focused
+   question and resume after the answer. See the plan for the exact stop conditions.
 
 ---
 
-## Metered (GPU) phases — extra care (Phases 5–6)
+## Metered (GPU) phases — extra care
 
-These spend real money — the RunPod pod bills **per second while up**. For every metered phase:
+The plan marks which phases are metered (⚠️). These spend real money — the RunPod pod bills **per second
+while up**. For every metered phase:
 
-1. **Shout before spending.** Before bringing any pod up, post a clear heads-up (what it does, rough
-   cost ≈ $0.34–0.69/hr, billing runs until teardown) and **wait for an explicit "go".** Do not create
-   the pod until then.
+1. **Shout before spending.** Before bringing any pod up, post a clear heads-up (what it does, rough cost
+   — the Blackwell tier used ≈ $0.72/hr; see the plan's cost estimate — billing runs until teardown) and
+   **wait for an explicit "go".** Do not create the pod until then.
 2. **Pre-flight at $0** — the whole local gate must be green before the pod comes up.
 3. **Keep the human posted on pod state** (up / downloading / rendering / torn down).
 4. **Hand off for visual verification** — when output needs human judgment (photoreal? face detectable?
@@ -93,6 +96,10 @@ These spend real money — the RunPod pod bills **per second while up**. For eve
 
 - **Never commit `.env` or any secret** (RunPod key, the vault path, etc.). `.env` is gitignored; keep
   the vault path and all secrets there only.
-- Runtime code stays **zero third-party dependency** (stdlib only); pytest/ruff/ty are dev-only.
+- Runtime code is **stdlib-only** (the ComfyUI transport uses `urllib`), with **one sanctioned
+  exception**: face detection (`insightface` + CPU `onnxruntime` / antelopev2), shipped as the optional
+  `faces` extra and reached **only through the injected `FaceDetector` facade** — real at the CLI, faked
+  in tests. Don't add other runtime deps without the plan sanctioning them. pytest/ruff/ty stay dev-only.
+  (The active plan's § Engineering conventions is authoritative on this.)
 - Don't skip the test-first step or the vault bookkeeping. The vault is the single source of truth for
   "where are we" — a fresh session relies on it.
