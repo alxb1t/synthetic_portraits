@@ -230,3 +230,61 @@ def test_default_negative_allows_visible_hands():
 
 def test_default_negative_keeps_the_face_guard():
     assert "poorly drawn face" in DEFAULT_NEGATIVE.lower()
+
+
+# --- role-aware conditioning walk (handles the InstantID two-hop) -----------
+
+
+def test_inject_follows_role_through_a_passthrough_conditioning_node():
+    # KSampler.positive -> ApplyInstantID (a pass-through carrying BOTH conditionings)
+    # -> the positive encoder. The walk must follow the same-named input by role, not
+    # grab whichever CLIPTextEncode it reaches first.
+    wf = {
+        "k": {
+            "class_type": "KSampler",
+            "_meta": {"title": "KSampler (Base)"},
+            "inputs": {
+                "seed": 0,
+                "positive": ["apply", 1],
+                "negative": ["apply", 2],
+                "latent_image": ["lat", 0],
+                "model": ["apply", 0],
+            },
+        },
+        "apply": {
+            "class_type": "ApplyInstantID",
+            "_meta": {"title": "Apply InstantID"},
+            "inputs": {
+                "model": ["ckpt", 0],
+                "positive": ["pos", 0],
+                "negative": ["neg", 0],
+                "image": ["hero", 0],
+            },
+        },
+        "pos": {
+            "class_type": "CLIPTextEncode",
+            "_meta": {"title": "CLIP Text Encode (Positive)"},
+            "inputs": {"text": "OLD", "clip": ["ckpt", 1]},
+        },
+        "neg": {
+            "class_type": "CLIPTextEncode",
+            "_meta": {"title": "CLIP Text Encode (Negative)"},
+            "inputs": {"text": "OLD", "clip": ["ckpt", 1]},
+        },
+        "lat": {
+            "class_type": "EmptyLatentImage",
+            "_meta": {"title": "Empty Latent Image"},
+            "inputs": {"width": 1, "height": 1, "batch_size": 1},
+        },
+        "ckpt": {"class_type": "CheckpointLoaderSimple", "_meta": {}, "inputs": {}},
+        "hero": {
+            "class_type": "LoadImage",
+            "_meta": {"title": "Load Image (identity)"},
+            "inputs": {"image": "x"},
+        },
+    }
+
+    result = inject_txt2img(wf, GenerationRequest(prompt="POS", negative="NEG"))
+
+    assert result["pos"]["inputs"]["text"] == "POS"
+    assert result["neg"]["inputs"]["text"] == "NEG"

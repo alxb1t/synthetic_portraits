@@ -1,7 +1,11 @@
 """The name -> Model registry (Registry + Strategy).
 
-``--model`` maps to a frozen :class:`Model` that owns its workflow graph and its injector.
-Dispatch is a dict lookup — no ``if/elif`` chains. Phase 4 adds ``realvis-txt2img-pose``.
+A model name maps to a frozen :class:`Model` that owns its workflow graph and its injector.
+Dispatch is a dict lookup — no ``if/elif`` chains. Two internal graphs share the one
+generalized injector: the hardened default (``realvis-txt2img``) and the same graph plus the
+InstantID legs (``realvis-txt2img-identity``). The CLI selects the identity graph
+automatically when ``--identity`` supplies a hero — the graphs are an implementation detail,
+not a menu the user picks from.
 """
 
 from __future__ import annotations
@@ -14,6 +18,7 @@ from .workflow import GenerationRequest, Workflow, inject_txt2img
 
 __all__ = [
     "DEFAULT_MODEL",
+    "IDENTITY_MODEL",
     "MODELS",
     "Model",
     "UnknownModelError",
@@ -44,9 +49,15 @@ MODELS: dict[str, Model] = {
         workflow_path=WORKFLOWS_DIR / "realvis-txt2img.json",
         injector=inject_txt2img,
     ),
+    "realvis-txt2img-identity": Model(
+        name="realvis-txt2img-identity",
+        workflow_path=WORKFLOWS_DIR / "realvis-txt2img-identity.json",
+        injector=inject_txt2img,  # the one generalized injector serves both graphs
+    ),
 }
 
 DEFAULT_MODEL = "realvis-txt2img"
+IDENTITY_MODEL = "realvis-txt2img-identity"
 
 
 def get_model(name: str) -> Model:

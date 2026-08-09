@@ -85,10 +85,10 @@ def inject_txt2img(workflow: Workflow, req: GenerationRequest) -> Workflow:
     ksamplers = _find_all_by_class(wf, "KSampler")
     first = ksamplers[0]
 
-    positive_id = _resolve_upstream(wf, first["inputs"]["positive"], "CLIPTextEncode")
+    positive_id = _resolve_conditioning(wf, first["inputs"]["positive"], "positive")
     wf[positive_id]["inputs"]["text"] = req.prompt
 
-    negative_id = _resolve_upstream(wf, first["inputs"]["negative"], "CLIPTextEncode")
+    negative_id = _resolve_conditioning(wf, first["inputs"]["negative"], "negative")
     wf[negative_id]["inputs"]["text"] = req.negative
 
     latent_id = _resolve_upstream(wf, first["inputs"]["latent_image"], "EmptyLatentImage")
@@ -143,6 +143,36 @@ def _is_link(value: Any) -> bool:
         and isinstance(value[0], str)
         and isinstance(value[1], int)
     )
+
+
+def _resolve_conditioning(workflow: Workflow, link: Any, role: str) -> str:
+    """Walk from ``link`` to the ``CLIPTextEncode`` for ``role`` (``positive``/``negative``).
+
+    One traversal handles both hop counts: the default graph links a ``KSampler`` straight to
+    its encoder (one hop), while the identity graph routes through ``ApplyInstantID`` — which
+    carries **both** conditionings — so a blind search could grab the wrong encoder. At each
+    pass-through node we follow the input **named for the role**, keeping positive and negative
+    apart; we fall back to the first conditioning link only if no same-named input exists.
+    """
+    seen: set[str] = set()
+    current: Any = link
+    while _is_link(current):
+        active: Any = current
+        node_id = active[0]
+        if node_id in seen:
+            break
+        seen.add(node_id)
+        node = workflow.get(node_id)
+        if node is None:
+            break
+        if node.get("class_type") == "CLIPTextEncode":
+            return node_id
+        inputs = node.get("inputs", {})
+        nxt: Any = inputs.get(role)
+        if not _is_link(nxt):
+            nxt = next((v for v in inputs.values() if _is_link(v)), None)
+        current = nxt
+    raise WorkflowError(f"could not trace a {role} CLIPTextEncode from {link!r}")
 
 
 def _resolve_upstream(workflow: Workflow, link: Any, class_type: str) -> str:

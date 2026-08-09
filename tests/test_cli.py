@@ -137,3 +137,53 @@ def test_main_all_faces_detected_returns_zero_and_no_warning(tmp_path, capsys):
 
     assert rc == 0
     assert capsys.readouterr().err == ""
+
+
+# --- --identity: auto-select the InstantID graph + upload the hero ----------
+
+
+def _hero(tmp_path) -> str:
+    p = tmp_path / "alice.png"
+    p.write_bytes(b"HEROBYTES")
+    return str(p)
+
+
+def test_identity_selects_the_instantid_graph_and_uploads_the_hero(tmp_path):
+    fake = FakeComfyClient()
+    hero = _hero(tmp_path)
+
+    rc = cli.main(
+        ["--prompt", "same person, cafe", "--identity", hero, "--out", str(tmp_path)],
+        transport=fake,
+        detector=_ACCEPT,
+    )
+
+    assert rc == 0
+    # The hero is uploaded once, by its filename.
+    assert fake.uploads == [("alice.png", b"HEROBYTES")]
+    # The identity graph was used: it carries an ApplyInstantID node.
+    classes = {n["class_type"] for n in fake.queued_workflows[0].values()}
+    assert "ApplyInstantID" in classes
+    # ...and the hero LoadImage points at the uploaded name.
+    load = next(n for n in fake.queued_workflows[0].values() if n["class_type"] == "LoadImage")
+    assert load["inputs"]["image"] == "alice.png"
+
+
+def test_no_identity_stays_on_the_default_graph_and_uploads_nothing(tmp_path):
+    fake = FakeComfyClient()
+
+    cli.main(["--prompt", "p", "--out", str(tmp_path)], transport=fake, detector=_ACCEPT)
+
+    assert fake.uploads == []
+    classes = {n["class_type"] for n in fake.queued_workflows[0].values()}
+    assert "ApplyInstantID" not in classes
+
+
+def test_identity_with_a_missing_file_is_an_error(tmp_path):
+    with pytest.raises(SystemExit) as exc:
+        cli.main(
+            ["--prompt", "p", "--identity", str(tmp_path / "nope.png"), "--out", str(tmp_path)],
+            transport=FakeComfyClient(),
+            detector=_ACCEPT,
+        )
+    assert exc.value.code != 0

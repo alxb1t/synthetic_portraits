@@ -1,0 +1,179 @@
+{
+  "4": {
+    "class_type": "CheckpointLoaderSimple",
+    "_meta": { "title": "Load Checkpoint" },
+    "inputs": {
+      "ckpt_name": "RealVisXL_V5.0_fp16.safetensors"
+    }
+  },
+  "5": {
+    "class_type": "EmptyLatentImage",
+    "_meta": { "title": "Empty Latent Image" },
+    "inputs": {
+      "width": 832,
+      "height": 1216,
+      "batch_size": 1
+    }
+  },
+  "6": {
+    "class_type": "CLIPTextEncode",
+    "_meta": { "title": "CLIP Text Encode (Positive)" },
+    "inputs": {
+      "text": "PLACEHOLDER_POSITIVE_PROMPT",
+      "clip": ["4", 1]
+    }
+  },
+  "7": {
+    "class_type": "CLIPTextEncode",
+    "_meta": { "title": "CLIP Text Encode (Negative)" },
+    "inputs": {
+      "text": "PLACEHOLDER_NEGATIVE_PROMPT",
+      "clip": ["4", 1]
+    }
+  },
+  "20": {
+    "class_type": "LoadImage",
+    "_meta": { "title": "Load Image (identity)" },
+    "inputs": {
+      "image": "PLACEHOLDER_HERO_IMAGE"
+    }
+  },
+  "21": {
+    "class_type": "InstantIDModelLoader",
+    "_meta": { "title": "Load InstantID Model" },
+    "inputs": {
+      "instantid_file": "ip-adapter.bin"
+    }
+  },
+  "22": {
+    "class_type": "InstantIDFaceAnalysis",
+    "_meta": { "title": "InstantID Face Analysis" },
+    "inputs": {
+      "provider": "CPU"
+    }
+  },
+  "23": {
+    "class_type": "ControlNetLoader",
+    "_meta": { "title": "Load Identity ControlNet" },
+    "inputs": {
+      "control_net_name": "diffusion_pytorch_model.safetensors"
+    }
+  },
+  "24": {
+    "class_type": "ApplyInstantID",
+    "_meta": { "title": "Apply InstantID" },
+    "inputs": {
+      "weight": 0.8,
+      "start_at": 0.0,
+      "end_at": 1.0,
+      "instantid": ["21", 0],
+      "insightface": ["22", 0],
+      "control_net": ["23", 0],
+      "image": ["20", 0],
+      "model": ["4", 0],
+      "positive": ["6", 0],
+      "negative": ["7", 0]
+    }
+  },
+  "3": {
+    "class_type": "KSampler",
+    "_meta": { "title": "KSampler (Base)" },
+    "inputs": {
+      "seed": 0,
+      "steps": 30,
+      "cfg": 5.0,
+      "sampler_name": "dpmpp_2m",
+      "scheduler": "karras",
+      "denoise": 1.0,
+      "model": ["24", 0],
+      "positive": ["24", 1],
+      "negative": ["24", 2],
+      "latent_image": ["5", 0]
+    }
+  },
+  "10": {
+    "class_type": "LatentUpscaleBy",
+    "_meta": { "title": "Latent Hi-res Upscale" },
+    "inputs": {
+      "upscale_method": "bilinear",
+      "scale_by": 1.5,
+      "samples": ["3", 0]
+    }
+  },
+  "11": {
+    "class_type": "KSampler",
+    "_meta": { "title": "KSampler (Hi-res)" },
+    "inputs": {
+      "seed": 0,
+      "steps": 20,
+      "cfg": 5.0,
+      "sampler_name": "dpmpp_2m",
+      "scheduler": "karras",
+      "denoise": 0.45,
+      "model": ["24", 0],
+      "positive": ["24", 1],
+      "negative": ["24", 2],
+      "latent_image": ["10", 0]
+    }
+  },
+  "8": {
+    "class_type": "VAEDecode",
+    "_meta": { "title": "VAE Decode" },
+    "inputs": {
+      "samples": ["11", 0],
+      "vae": ["4", 2]
+    }
+  },
+  "12": {
+    "class_type": "UltralyticsDetectorProvider",
+    "_meta": { "title": "Face BBox Detector" },
+    "inputs": {
+      "model_name": "bbox/face_yolov8m.pt"
+    }
+  },
+  "13": {
+    "class_type": "FaceDetailer",
+    "_meta": { "title": "FaceDetailer" },
+    "inputs": {
+      "guide_size": 512,
+      "guide_size_for": true,
+      "max_size": 1024,
+      "seed": 0,
+      "steps": 20,
+      "cfg": 5.0,
+      "sampler_name": "dpmpp_2m",
+      "scheduler": "karras",
+      "denoise": 0.45,
+      "feather": 5,
+      "noise_mask": true,
+      "force_inpaint": true,
+      "bbox_threshold": 0.5,
+      "bbox_dilation": 10,
+      "bbox_crop_factor": 3.0,
+      "sam_detection_hint": "center-1",
+      "sam_dilation": 0,
+      "sam_threshold": 0.93,
+      "sam_bbox_expansion": 0,
+      "sam_mask_hint_threshold": 0.7,
+      "sam_mask_hint_use_negative": "False",
+      "drop_size": 10,
+      "wildcard": "",
+      "cycle": 1,
+      "image": ["8", 0],
+      "model": ["24", 0],
+      "clip": ["4", 1],
+      "vae": ["4", 2],
+      "positive": ["24", 1],
+      "negative": ["24", 2],
+      "bbox_detector": ["12", 0]
+    }
+  },
+  "9": {
+    "class_type": "SaveImage",
+    "_meta": { "title": "Save Image" },
+    "inputs": {
+      "filename_prefix": "synthetic_portrait",
+      "images": ["13", 0]
+    }
+  }
+}

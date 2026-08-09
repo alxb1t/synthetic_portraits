@@ -10,16 +10,18 @@ import argparse
 import os
 import sys
 from collections.abc import Sequence
+from pathlib import Path
 
 from . import pipeline
 from .faces import FaceDetector, default_face_detector
-from .models import DEFAULT_MODEL, MODELS, get_model
+from .models import DEFAULT_MODEL, IDENTITY_MODEL, MODELS, get_model
 from .transport import ComfyClient, ComfyTransport
 from .workflow import (
     DEFAULT_HEIGHT,
     DEFAULT_NEGATIVE,
     DEFAULT_WIDTH,
     GenerationRequest,
+    NamedInput,
 )
 
 DEFAULT_SERVER = os.environ.get("COMFY_URL", "http://127.0.0.1:8188")
@@ -31,6 +33,10 @@ def build_parser() -> argparse.ArgumentParser:
         description="Generate a photoreal upper-body image of a person who does not exist.",
     )
     parser.add_argument("--prompt", help="Text prompt describing the synthetic person.")
+    parser.add_argument(
+        "--identity",
+        help="Reference face (hero) image; produces that same person via InstantID.",
+    )
     parser.add_argument(
         "--model", default=DEFAULT_MODEL, choices=sorted(MODELS), help="Registered model to use."
     )
@@ -63,7 +69,20 @@ def main(
         parser.print_help()
         return 0
 
-    model = get_model(args.model)
+    # --identity supplies a hero -> auto-select the InstantID graph and upload the hero as a
+    # named input. Without it, stay on the hardened default graph with zero inputs.
+    inputs: tuple[NamedInput, ...] = ()
+    if args.identity:
+        hero_path = Path(args.identity)
+        if not hero_path.is_file():
+            parser.error(f"--identity file not found: {args.identity}")
+        inputs = (
+            NamedInput(role="identity", filename=hero_path.name, data=hero_path.read_bytes()),
+        )
+        model = get_model(IDENTITY_MODEL)
+    else:
+        model = get_model(args.model)
+
     client = transport if transport is not None else ComfyClient(args.server)
     face_detector = detector if detector is not None else default_face_detector()
 
@@ -77,6 +96,7 @@ def main(
             width=args.width,
             height=args.height,
             seed=args.seed + offset,
+            inputs=inputs,
         )
         outcome = pipeline.run(client, model, req, out_dir=args.out, detector=face_detector)
         saved.extend(outcome.paths)
