@@ -7,6 +7,7 @@ here; ``docker build --check`` runs in the gate.
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -119,6 +120,18 @@ def test_start_maps_the_v0_2_model_dirs_into_comfyui():
     text = START.read_text()
     for folder in ("controlnet", "instantid", "ultralytics", "insightface"):
         assert folder in text, folder
+
+
+def test_start_symlinks_hardcoded_model_dirs_to_the_volume():
+    # The Impact Subpack (UltralyticsDetectorProvider) and the InstantID node resolve models
+    # from ``folder_paths.models_dir/<x>`` directly and IGNORE extra_model_paths.yaml — so the
+    # yaml mapping alone leaves the bbox list empty and makes InstantID auto-download a broken
+    # (nested) antelopev2. start.sh must symlink those two dirs onto the volume before ComfyUI
+    # launches. (Discovered live in Phase 6.)
+    text = START.read_text()
+    for folder in ("ultralytics", "insightface"):
+        # a symlink of ComfyUI's models/<folder> -> the volume's <folder>
+        assert re.search(rf"ln -s\S*\s+\S*{folder}\S*\s+\S*models/{folder}", text), folder
 
 
 def test_pod_scripts_use_runpod_rest_api():

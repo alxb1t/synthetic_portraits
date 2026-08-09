@@ -51,7 +51,7 @@
     "class_type": "LatentUpscaleBy",
     "_meta": { "title": "Latent Hi-res Upscale" },
     "inputs": {
-      "upscale_method": "bilinear",
+      "upscale_method": "bislerp",
       "scale_by": 1.5,
       "samples": ["3", 0]
     }
@@ -61,11 +61,11 @@
     "_meta": { "title": "KSampler (Hi-res)" },
     "inputs": {
       "seed": 0,
-      "steps": 20,
+      "steps": 25,
       "cfg": 5.0,
       "sampler_name": "dpmpp_2m",
       "scheduler": "karras",
-      "denoise": 0.45,
+      "denoise": 0.55,
       "model": ["4", 0],
       "positive": ["6", 0],
       "negative": ["7", 0],

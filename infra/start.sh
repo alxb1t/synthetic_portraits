@@ -36,6 +36,15 @@ runpod:
   insightface: insightface
 YAML
 
+# extra_model_paths.yaml is not enough for two custom nodes: the Impact Subpack
+# (UltralyticsDetectorProvider) and the InstantID node resolve models from
+# ${COMFYUI_HOME}/models/<x> directly (folder_paths.models_dir) and IGNORE the yaml. Without
+# these symlinks the bbox detector list comes up empty and the InstantID node auto-downloads a
+# BROKEN (nested) antelopev2 pack. Point both dirs at the volume's copies. (Found live in Phase 6.)
+mkdir -p "${COMFYUI_HOME}/models"
+ln -sfn "${MODELS_DIR}/ultralytics" "${COMFYUI_HOME}/models/ultralytics"
+ln -sfn "${MODELS_DIR}/insightface" "${COMFYUI_HOME}/models/insightface"
+
 echo "launching ComfyUI on port ${COMFYUI_PORT}"
 cd "${COMFYUI_HOME}"
 exec python3 main.py --listen 0.0.0.0 --port "${COMFYUI_PORT}"
