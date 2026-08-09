@@ -114,6 +114,53 @@ def test_download_isolates_models_into_their_target_dirs():
     assert "ultralytics/bbox" in text  # face_yolov8m.pt
 
 
+def test_download_pins_immutable_commit_revisions():
+    # Supply chain (security S1): every HF `resolve/<ref>/` must pin an IMMUTABLE commit SHA,
+    # never the mutable `main` branch — so a moved ref (or a compromised mirror force-moving
+    # `main`) can't silently swap the bytes we fetch. The URLs interpolate a `*_REV` variable;
+    # assert no `main` ref, that each resolve ref is a `_REV` var (or a literal SHA), and that
+    # every `_REV` variable is assigned a real 40-hex commit SHA.
+    text = DOWNLOAD.read_text()
+    assert "resolve/main/" not in text, "model URLs must not use the mutable `main` ref"
+    refs = re.findall(r"/resolve/([^/]+)/", text)
+    assert refs, "expected pinned resolve URLs"
+    for ref in refs:
+        assert re.fullmatch(r"[0-9a-f]{40}", ref) or re.fullmatch(r"\$\{\w*REV\w*\}", ref), (
+            f"resolve ref is neither a 40-hex commit SHA nor a *_REV pin: {ref}"
+        )
+    rev_defs = re.findall(r"^\w*REV\w*=\"?([^\"\n]+)\"?", text, re.MULTILINE)
+    assert rev_defs, "expected *_REV pin definitions"
+    for rev in rev_defs:
+        assert re.fullmatch(r"[0-9a-f]{40}", rev), f"*_REV pin is not a 40-hex commit SHA: {rev}"
+
+
+def test_download_verifies_sha256_and_aborts_on_mismatch():
+    # Security S1: two weights are code-executing pickle (.bin/.pt) loaded via torch.load-style
+    # paths, from third-party mirrors. Every download must be SHA-256 verified, and a mismatch
+    # must ABORT (non-zero exit) so a swapped/corrupt file is never moved into place.
+    text = DOWNLOAD.read_text()
+    assert "sha256sum" in text
+    assert "exit 1" in text  # checksum mismatch aborts the script
+    # The pickle weights specifically carry their recorded SHA-256 (the highest-risk files).
+    assert "02b3618e36d803784166660520098089a81388e61a93ef8002aa79a5b1c546e1" in text  # ip-adapter
+    assert "717923c19b3f4bbf5250b728f1fa6b2cb72a33aed1d236ea9caf0e21ad943e5f" in text  # yolov8m
+
+
+def test_download_records_a_checksum_for_every_fetched_file():
+    # Every download call passes a SHA-256 argument (a `_SHA` var, a literal, or the antelope
+    # `ANTELOPE_SHAS[i]` array) — no unverified fetch slips through. And every `_SHA` pin is a
+    # real 64-hex digest.
+    text = DOWNLOAD.read_text()
+    download_calls = [ln for ln in text.splitlines() if re.match(r"\s*download ", ln)]
+    assert download_calls, "expected download calls"
+    for ln in download_calls:
+        assert re.search(r"[0-9a-f]{64}", ln) or "_SHA" in ln or "SHAS" in ln, ln
+    sha_defs = re.findall(r"^\w*_SHA=\"?([^\"\n]+)\"?", text, re.MULTILINE)
+    assert sha_defs, "expected *_SHA pin definitions"
+    for sha in sha_defs:
+        assert re.fullmatch(r"[0-9a-f]{64}", sha), f"*_SHA pin is not a 64-hex digest: {sha}"
+
+
 def test_start_maps_the_v0_2_model_dirs_into_comfyui():
     # ComfyUI code is in the image, weights on the volume — extra_model_paths must expose
     # the new model folders (controlnet/instantid/ultralytics/insightface), not just checkpoints.
