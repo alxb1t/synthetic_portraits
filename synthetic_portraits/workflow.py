@@ -74,22 +74,29 @@ class GenerationRequest:
 def inject_txt2img(workflow: Workflow, req: GenerationRequest) -> Workflow:
     """Return a copy of ``workflow`` with the prompt/dims/seed wired in.
 
-    Does not mutate the input graph.
+    Traces from a ``KSampler`` to the right nodes (never by id), so it survives the
+    node-id churn between the placeholder fixture and the real GPU export. The hardened
+    graph has **two** ``KSampler`` passes (base + latent hi-res); prompt/dims are traced
+    from the first (both passes share the same encoders + latent chain) and the **seed is
+    set on every pass** so re-seeding in the regenerate loop re-rolls the person and stays
+    reproducible. Does not mutate the input graph.
     """
     wf = copy.deepcopy(workflow)
-    ksampler = _find_by_class(wf, "KSampler")
+    ksamplers = _find_all_by_class(wf, "KSampler")
+    first = ksamplers[0]
 
-    positive_id = _resolve_upstream(wf, ksampler["inputs"]["positive"], "CLIPTextEncode")
+    positive_id = _resolve_upstream(wf, first["inputs"]["positive"], "CLIPTextEncode")
     wf[positive_id]["inputs"]["text"] = req.prompt
 
-    negative_id = _resolve_upstream(wf, ksampler["inputs"]["negative"], "CLIPTextEncode")
+    negative_id = _resolve_upstream(wf, first["inputs"]["negative"], "CLIPTextEncode")
     wf[negative_id]["inputs"]["text"] = req.negative
 
-    latent_id = _resolve_upstream(wf, ksampler["inputs"]["latent_image"], "EmptyLatentImage")
+    latent_id = _resolve_upstream(wf, first["inputs"]["latent_image"], "EmptyLatentImage")
     wf[latent_id]["inputs"]["width"] = req.width
     wf[latent_id]["inputs"]["height"] = req.height
 
-    ksampler["inputs"]["seed"] = req.seed
+    for ksampler in ksamplers:
+        ksampler["inputs"]["seed"] = req.seed
     return wf
 
 
@@ -121,11 +128,11 @@ def _find_load_image_by_role(workflow: Workflow, role: str) -> dict[str, Any]:
     raise WorkflowError(f"no LoadImage node for role {role!r}")
 
 
-def _find_by_class(workflow: Workflow, class_type: str) -> dict[str, Any]:
-    for node in workflow.values():
-        if node.get("class_type") == class_type:
-            return node
-    raise WorkflowError(f"no {class_type} node in workflow")
+def _find_all_by_class(workflow: Workflow, class_type: str) -> list[dict[str, Any]]:
+    nodes = [n for n in workflow.values() if n.get("class_type") == class_type]
+    if not nodes:
+        raise WorkflowError(f"no {class_type} node in workflow")
+    return nodes
 
 
 def _is_link(value: Any) -> bool:
