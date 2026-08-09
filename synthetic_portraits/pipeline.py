@@ -81,12 +81,17 @@ def run(
     out_dir: str | Path,
     detector: FaceDetector,
     max_attempts: int = DEFAULT_MAX_ATTEMPTS,
+    label: str | None = None,
 ) -> RenderOutcome:
     """Render with the regenerate loop, then write the accepted (or last) render to disk.
 
     Uploads named inputs once, then renders up to ``max_attempts`` times advancing the seed
     each retry, accepting the first render with exactly one detectable face. On exhaustion it
     keeps and saves the last render and returns ``detected=False``.
+
+    ``label`` gives the batch a **stable output filename** (``{label}.png``, or
+    ``{label}_{i}.png`` for a multi-image render); without it the ComfyUI-assigned filename
+    is used (the single ``--prompt`` path, unchanged from v0.1).
     """
     uploaded = {ni.role: transport.upload_image(ni.filename, ni.data) for ni in req.inputs}
 
@@ -105,8 +110,14 @@ def run(
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     saved: list[Path] = []
-    for image in images:
-        dest = out / image.filename
+    for index, image in enumerate(images):
+        if label is None:
+            name = image.filename
+        elif len(images) == 1:
+            name = f"{label}.png"
+        else:
+            name = f"{label}_{index:02d}.png"
+        dest = out / name
         dest.write_bytes(image.data)
         saved.append(dest)
     return RenderOutcome(paths=saved, attempts=attempts, detected=detected, faces=faces)

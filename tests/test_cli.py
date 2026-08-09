@@ -187,3 +187,137 @@ def test_identity_with_a_missing_file_is_an_error(tmp_path):
             detector=_ACCEPT,
         )
     assert exc.value.code != 0
+
+
+# --- --prompts: character-sheet / batch over the selected path --------------
+
+
+def _prompts_file(tmp_path, lines) -> str:
+    f = tmp_path / "prompts.txt"
+    f.write_text("\n".join(lines) + "\n")
+    return str(f)
+
+
+def _positive_texts(fake: FakeComfyClient) -> list[str]:
+    texts = []
+    for wf in fake.queued_workflows:
+        node = next(
+            n
+            for n in wf.values()
+            if n["class_type"] == "CLIPTextEncode" and "Positive" in n["_meta"]["title"]
+        )
+        texts.append(node["inputs"]["text"])
+    return texts
+
+
+def test_prompts_alone_is_a_batch_of_independent_people(tmp_path):
+    fake = FakeComfyClient()
+    pf = _prompts_file(tmp_path, ["a woman in a park", "a man at a cafe"])
+
+    rc = cli.main(
+        ["--prompts", pf, "--seed", "0", "--out", str(tmp_path)],
+        transport=fake,
+        detector=_ACCEPT,
+    )
+
+    assert rc == 0
+    # One render per line, on the default graph, uploading nothing.
+    assert _positive_texts(fake) == ["a woman in a park", "a man at a cafe"]
+    assert fake.uploads == []
+    # A labeled set: one stable-named file per prompt.
+    names = sorted(p.name for p in tmp_path.glob("*.png"))
+    assert names == ["00_00_a_woman_in_a_park.png", "01_00_a_man_at_a_cafe.png"]
+
+
+def test_prompts_with_identity_is_a_same_person_character_sheet(tmp_path):
+    fake = FakeComfyClient()
+    hero = _hero(tmp_path)
+    pf = _prompts_file(tmp_path, ["sitting at a cafe", "standing in a park"])
+
+    rc = cli.main(
+        ["--prompts", pf, "--identity", hero, "--seed", "0", "--out", str(tmp_path)],
+        transport=fake,
+        detector=_ACCEPT,
+    )
+
+    assert rc == 0
+    # Every render uses the identity graph and the same hero.
+    for wf in fake.queued_workflows:
+        assert "ApplyInstantID" in {n["class_type"] for n in wf.values()}
+    assert ("alice.png", b"HEROBYTES") in fake.uploads
+    assert _positive_texts(fake) == ["sitting at a cafe", "standing in a park"]
+
+
+def test_prompts_multiplies_with_count(tmp_path):
+    fake = FakeComfyClient()
+    pf = _prompts_file(tmp_path, ["one", "two"])
+
+    cli.main(
+        ["--prompts", pf, "-n", "2", "--seed", "0", "--out", str(tmp_path)],
+        transport=fake,
+        detector=_ACCEPT,
+    )
+
+    # P prompts x N each = 4 renders, with distinct labeled files.
+    assert len(fake.queued_workflows) == 4
+    names = sorted(p.name for p in tmp_path.glob("*.png"))
+    assert names == [
+        "00_00_one.png",
+        "00_01_one.png",
+        "01_00_two.png",
+        "01_01_two.png",
+    ]
+
+
+def test_prompts_seeds_are_deterministic_and_distinct(tmp_path):
+    fake = FakeComfyClient()
+    pf = _prompts_file(tmp_path, ["one", "two"])
+
+    cli.main(
+        ["--prompts", pf, "-n", "2", "--seed", "100", "--out", str(tmp_path)],
+        transport=fake,
+        detector=_ACCEPT,
+    )
+
+    seeds = [
+        next(n for n in wf.values() if n["class_type"] == "KSampler")["inputs"]["seed"]
+        for wf in fake.queued_workflows
+    ]
+    assert seeds == [100, 101, 102, 103]  # base_seed + running index, reproducible
+
+
+def test_prompt_and_prompts_together_is_an_error(tmp_path):
+    pf = _prompts_file(tmp_path, ["x"])
+    with pytest.raises(SystemExit) as exc:
+        cli.main(
+            ["--prompt", "y", "--prompts", pf, "--out", str(tmp_path)],
+            transport=FakeComfyClient(),
+            detector=_ACCEPT,
+        )
+    assert exc.value.code != 0
+
+
+def test_prompts_empty_file_is_an_error(tmp_path):
+    pf = _prompts_file(tmp_path, ["   ", ""])
+    with pytest.raises(SystemExit) as exc:
+        cli.main(
+            ["--prompts", pf, "--out", str(tmp_path)],
+            transport=FakeComfyClient(),
+            detector=_ACCEPT,
+        )
+    assert exc.value.code != 0
+
+
+def test_omitting_seed_still_renders_reproducibly_within_a_run(tmp_path):
+    # No --seed -> a random base seed is chosen once; the set stays internally consistent
+    # (distinct, consecutive seeds) even though the base is not fixed across runs.
+    fake = FakeComfyClient()
+    pf = _prompts_file(tmp_path, ["one", "two", "three"])
+
+    cli.main(["--prompts", pf, "--out", str(tmp_path)], transport=fake, detector=_ACCEPT)
+
+    seeds = [
+        next(n for n in wf.values() if n["class_type"] == "KSampler")["inputs"]["seed"]
+        for wf in fake.queued_workflows
+    ]
+    assert seeds == [seeds[0], seeds[0] + 1, seeds[0] + 2]
