@@ -16,6 +16,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DOCKERFILE = REPO_ROOT / "Dockerfile"
+CONSTRAINTS = REPO_ROOT / "constraints.txt"
 DOWNLOAD = REPO_ROOT / "download_models.sh"
 START = REPO_ROOT / "infra" / "start.sh"
 UP = REPO_ROOT / "infra" / "up.sh"
@@ -61,13 +62,39 @@ def test_dockerfile_pins_v0_2_custom_nodes():
 
 def test_dockerfile_installs_face_and_detailer_deps_cpu_only():
     text = DOCKERFILE.read_text()
-    # insightface + CPU onnxruntime + ultralytics; the Impact Pack numpy<2 ceiling pinned.
+    # insightface + CPU onnxruntime + ultralytics power the face/detailer stack.
     assert "insightface" in text
     assert "onnxruntime" in text
     assert "ultralytics" in text
-    assert "numpy<2" in text
-    # Never the GPU onnxruntime (Blackwell/cu128 CUDA-match pain; never install both).
-    assert "onnxruntime-gpu" not in text
+    # We never explicitly pip-install the GPU onnxruntime on our own line (Blackwell/cu128
+    # CUDA-match pain). It may still arrive transitively via a node dep; that copy is
+    # version-pinned through constraints.txt, not installed by us here.
+    assert not re.search(r"pip3 install[^\n]*\bonnxruntime-gpu\b", text)
+
+
+def test_dockerfile_pins_face_and_detailer_deps_for_reproducible_builds():
+    # Security S2: the four named deps are exact-pinned (== , not floating >=/unversioned),
+    # and every requirements-file install is constraint-locked to the validated set so a
+    # rebuild resolves the same tree instead of whatever PyPI serves that day.
+    text = DOCKERFILE.read_text()
+    assert "COPY constraints.txt" in text
+    for pin in ("insightface==", "onnxruntime==", "ultralytics==", "numpy=="):
+        assert pin in text, pin
+    req_installs = [ln for ln in text.splitlines() if re.search(r"pip3 install .*-r ", ln)]
+    assert req_installs, "expected requirements-file installs"
+    for ln in req_installs:
+        assert "-c /opt/constraints.txt" in ln, ln
+
+
+def test_constraints_file_pins_every_line_exactly():
+    # Every non-comment line is an exact `name==version` pin (no floating specifiers), and
+    # no URL/VCS requirement (pip forbids those in a constraints file).
+    lines = CONSTRAINTS.read_text().splitlines()
+    pins = [ln.strip() for ln in lines if ln.strip() and not ln.lstrip().startswith("#")]
+    assert pins, "expected version pins"
+    for pin in pins:
+        assert re.fullmatch(r"[A-Za-z0-9._-]+==[A-Za-z0-9._+!-]+", pin), pin
+    assert not any(" @ " in pin for pin in pins), "no URL/VCS requirements in constraints"
 
 
 def test_dockerfile_installs_requests():
