@@ -12,9 +12,11 @@ import copy
 import pytest
 
 from synthetic_portraits.workflow import (
+    DEFAULT_NEGATIVE,
     GenerationRequest,
     WorkflowError,
     inject_txt2img,
+    set_named_inputs,
 )
 
 
@@ -115,3 +117,172 @@ def test_inject_raises_when_ksampler_is_missing():
     graph = {"x": {"class_type": "VAEDecode", "inputs": {}}}
     with pytest.raises(WorkflowError, match="KSampler"):
         inject_txt2img(graph, GenerationRequest(prompt="p"))
+
+
+# --- multi-input wiring: role -> LoadImage by title, not by id --------------
+
+
+def _graph_with_load_image() -> dict:
+    return {
+        "1": {
+            "class_type": "LoadImage",
+            "_meta": {"title": "Load Image (identity)"},
+            "inputs": {"image": "PLACEHOLDER"},
+        },
+        "2": {
+            "class_type": "SaveImage",
+            "_meta": {"title": "Save Image"},
+            "inputs": {"images": ["1", 0]},
+        },
+    }
+
+
+def test_set_named_inputs_wires_server_name_onto_loadimage_by_role():
+    wf = _graph_with_load_image()
+
+    set_named_inputs(wf, {"identity": "hero_srv.png"})
+
+    assert wf["1"]["inputs"]["image"] == "hero_srv.png"
+
+
+def test_set_named_inputs_matches_role_case_insensitively():
+    wf = _graph_with_load_image()
+
+    set_named_inputs(wf, {"IDENTITY": "hero_srv.png"})
+
+    assert wf["1"]["inputs"]["image"] == "hero_srv.png"
+
+
+def test_set_named_inputs_empty_map_is_a_noop():
+    wf = _graph_with_load_image()
+    before = copy.deepcopy(wf)
+
+    set_named_inputs(wf, {})
+
+    assert wf == before
+
+
+def test_set_named_inputs_raises_when_no_loadimage_matches_the_role():
+    wf = _graph_with_load_image()
+    with pytest.raises(WorkflowError, match="pose"):
+        set_named_inputs(wf, {"pose": "x.png"})
+
+
+# --- the hardened default graph: base -> hi-res -> FaceDetailer -------------
+
+
+def _ksamplers(wf: dict) -> list[dict]:
+    return [n for n in wf.values() if n["class_type"] == "KSampler"]
+
+
+def test_hardened_fixture_has_hires_and_facedetailer_topology(txt2img_workflow):
+    classes = {n["class_type"] for n in txt2img_workflow.values()}
+    # base txt2img -> latent hi-res (upscale + 2nd sampler) -> FaceDetailer -> save.
+    assert "LatentUpscaleBy" in classes
+    assert "FaceDetailer" in classes
+    assert "UltralyticsDetectorProvider" in classes  # the bbox detector for FaceDetailer
+    assert len(_ksamplers(txt2img_workflow)) == 2  # base + hi-res second pass
+
+
+def test_hires_second_ksampler_resamples_the_upscaled_latent(txt2img_workflow):
+    # The hi-res KSampler's latent must come (via LatentUpscaleBy) from the base KSampler.
+    upscale = next(n for n in txt2img_workflow.values() if n["class_type"] == "LatentUpscaleBy")
+    src_id = upscale["inputs"]["samples"][0]
+    assert txt2img_workflow[src_id]["class_type"] == "KSampler"  # fed by the base sampler
+
+
+def test_facedetailer_is_the_final_image_before_save(txt2img_workflow):
+    save = next(n for n in txt2img_workflow.values() if n["class_type"] == "SaveImage")
+    feeder_id = save["inputs"]["images"][0]
+    assert txt2img_workflow[feeder_id]["class_type"] == "FaceDetailer"
+
+
+def test_inject_sets_seed_on_every_ksampler(txt2img_workflow):
+    # Both passes get the seed, so re-seeding in the regenerate loop actually re-rolls the
+    # person (base sampler) and stays reproducible (hi-res sampler).
+    result = inject_txt2img(txt2img_workflow, GenerationRequest(prompt="p", seed=4242))
+
+    seeds = [k["inputs"]["seed"] for k in _ksamplers(result)]
+    assert seeds == [4242, 4242]
+
+
+def test_inject_traces_dims_through_the_hires_hop(txt2img_workflow):
+    # EmptyLatentImage still gets the dims even though the hi-res sampler sits a
+    # LatentUpscaleBy hop away from it — tracing walks upstream, not by id.
+    result = inject_txt2img(txt2img_workflow, GenerationRequest(prompt="p", width=768, height=1152))
+
+    latent = next(n for n in result.values() if n["class_type"] == "EmptyLatentImage")
+    assert (latent["inputs"]["width"], latent["inputs"]["height"]) == (768, 1152)
+
+
+# --- the loosened negative (v0.1 post-ship tweak, carried) ------------------
+
+
+def test_default_negative_allows_visible_hands():
+    # Upper-body / full-height shots legitimately show hands; the negative must not
+    # suppress them (carried from v0.1's post-ship tweak).
+    lowered = DEFAULT_NEGATIVE.lower()
+    assert "hand" not in lowered
+    assert "finger" not in lowered
+
+
+def test_default_negative_keeps_the_face_guard():
+    assert "poorly drawn face" in DEFAULT_NEGATIVE.lower()
+
+
+# --- role-aware conditioning walk (handles the InstantID two-hop) -----------
+
+
+def test_inject_follows_role_through_a_passthrough_conditioning_node():
+    # KSampler.positive -> ApplyInstantID (a pass-through carrying BOTH conditionings)
+    # -> the positive encoder. The walk must follow the same-named input by role, not
+    # grab whichever CLIPTextEncode it reaches first.
+    wf = {
+        "k": {
+            "class_type": "KSampler",
+            "_meta": {"title": "KSampler (Base)"},
+            "inputs": {
+                "seed": 0,
+                "positive": ["apply", 1],
+                "negative": ["apply", 2],
+                "latent_image": ["lat", 0],
+                "model": ["apply", 0],
+            },
+        },
+        "apply": {
+            "class_type": "ApplyInstantID",
+            "_meta": {"title": "Apply InstantID"},
+            "inputs": {
+                "model": ["ckpt", 0],
+                "positive": ["pos", 0],
+                "negative": ["neg", 0],
+                "image": ["hero", 0],
+            },
+        },
+        "pos": {
+            "class_type": "CLIPTextEncode",
+            "_meta": {"title": "CLIP Text Encode (Positive)"},
+            "inputs": {"text": "OLD", "clip": ["ckpt", 1]},
+        },
+        "neg": {
+            "class_type": "CLIPTextEncode",
+            "_meta": {"title": "CLIP Text Encode (Negative)"},
+            "inputs": {"text": "OLD", "clip": ["ckpt", 1]},
+        },
+        "lat": {
+            "class_type": "EmptyLatentImage",
+            "_meta": {"title": "Empty Latent Image"},
+            "inputs": {"width": 1, "height": 1, "batch_size": 1},
+        },
+        "ckpt": {"class_type": "CheckpointLoaderSimple", "_meta": {}, "inputs": {}},
+        "hero": {
+            "class_type": "LoadImage",
+            "_meta": {"title": "Load Image (identity)"},
+            "inputs": {"image": "x"},
+        },
+    }
+
+    result = inject_txt2img(wf, GenerationRequest(prompt="POS", negative="NEG"))
+
+    assert result["pos"]["inputs"]["text"] == "POS"
+    assert result["neg"]["inputs"]["text"] == "NEG"

@@ -20,8 +20,10 @@ __all__ = [
     "DEFAULT_NEGATIVE",
     "DEFAULT_WIDTH",
     "GenerationRequest",
+    "NamedInput",
     "WorkflowError",
     "inject_txt2img",
+    "set_named_inputs",
 ]
 
 # Default portrait aspect for upper-body framing (the EmptyLatentImage dims).
@@ -44,6 +46,19 @@ class WorkflowError(Exception):
 
 
 @dataclass(frozen=True)
+class NamedInput:
+    """One image the pipeline uploads and wires to a ``LoadImage`` node **by role**.
+
+    ``role`` matches the target ``LoadImage`` node's title (e.g. ``"identity"`` for the hero
+    image); ``filename`` is the name to upload as; ``data`` is the raw image bytes.
+    """
+
+    role: str
+    filename: str
+    data: bytes
+
+
+@dataclass(frozen=True)
 class GenerationRequest:
     """Everything the injector + pipeline need to render one image."""
 
@@ -52,38 +67,72 @@ class GenerationRequest:
     width: int = DEFAULT_WIDTH
     height: int = DEFAULT_HEIGHT
     seed: int = 0
+    # Named image inputs to upload + wire by role (empty on the default prompt-only path).
+    inputs: tuple[NamedInput, ...] = ()
 
 
 def inject_txt2img(workflow: Workflow, req: GenerationRequest) -> Workflow:
     """Return a copy of ``workflow`` with the prompt/dims/seed wired in.
 
-    Does not mutate the input graph.
+    Traces from a ``KSampler`` to the right nodes (never by id), so it survives the
+    node-id churn between the placeholder fixture and the real GPU export. The hardened
+    graph has **two** ``KSampler`` passes (base + latent hi-res); prompt/dims are traced
+    from the first (both passes share the same encoders + latent chain) and the **seed is
+    set on every pass** so re-seeding in the regenerate loop re-rolls the person and stays
+    reproducible. Does not mutate the input graph.
     """
     wf = copy.deepcopy(workflow)
-    ksampler = _find_by_class(wf, "KSampler")
+    ksamplers = _find_all_by_class(wf, "KSampler")
+    first = ksamplers[0]
 
-    positive_id = _resolve_upstream(wf, ksampler["inputs"]["positive"], "CLIPTextEncode")
+    positive_id = _resolve_conditioning(wf, first["inputs"]["positive"], "positive")
     wf[positive_id]["inputs"]["text"] = req.prompt
 
-    negative_id = _resolve_upstream(wf, ksampler["inputs"]["negative"], "CLIPTextEncode")
+    negative_id = _resolve_conditioning(wf, first["inputs"]["negative"], "negative")
     wf[negative_id]["inputs"]["text"] = req.negative
 
-    latent_id = _resolve_upstream(wf, ksampler["inputs"]["latent_image"], "EmptyLatentImage")
+    latent_id = _resolve_upstream(wf, first["inputs"]["latent_image"], "EmptyLatentImage")
     wf[latent_id]["inputs"]["width"] = req.width
     wf[latent_id]["inputs"]["height"] = req.height
 
-    ksampler["inputs"]["seed"] = req.seed
+    for ksampler in ksamplers:
+        ksampler["inputs"]["seed"] = req.seed
     return wf
+
+
+def set_named_inputs(workflow: Workflow, uploaded: dict[str, str]) -> Workflow:
+    """Wire each ``role -> server_name`` onto its ``LoadImage`` node **in place**, by title.
+
+    Generalizes v0.1's zero-input assumption: the pipeline uploads N named inputs and points
+    each ``LoadImage`` at the uploaded name — matched by the node's role/title (like
+    injection-by-trace), never by a hardcoded id. Raises :class:`WorkflowError` if a declared
+    role has no matching ``LoadImage`` node. An empty map is a no-op (the default path).
+    """
+    for role, server_name in uploaded.items():
+        node = _find_load_image_by_role(workflow, role)
+        node["inputs"]["image"] = server_name
+    return workflow
 
 
 # --- graph tracing helpers --------------------------------------------------
 
 
-def _find_by_class(workflow: Workflow, class_type: str) -> dict[str, Any]:
+def _find_load_image_by_role(workflow: Workflow, role: str) -> dict[str, Any]:
+    needle = role.casefold()
     for node in workflow.values():
-        if node.get("class_type") == class_type:
+        if node.get("class_type") != "LoadImage":
+            continue
+        title = node.get("_meta", {}).get("title", "")
+        if needle in title.casefold():
             return node
-    raise WorkflowError(f"no {class_type} node in workflow")
+    raise WorkflowError(f"no LoadImage node for role {role!r}")
+
+
+def _find_all_by_class(workflow: Workflow, class_type: str) -> list[dict[str, Any]]:
+    nodes = [n for n in workflow.values() if n.get("class_type") == class_type]
+    if not nodes:
+        raise WorkflowError(f"no {class_type} node in workflow")
+    return nodes
 
 
 def _is_link(value: Any) -> bool:
@@ -94,6 +143,36 @@ def _is_link(value: Any) -> bool:
         and isinstance(value[0], str)
         and isinstance(value[1], int)
     )
+
+
+def _resolve_conditioning(workflow: Workflow, link: Any, role: str) -> str:
+    """Walk from ``link`` to the ``CLIPTextEncode`` for ``role`` (``positive``/``negative``).
+
+    One traversal handles both hop counts: the default graph links a ``KSampler`` straight to
+    its encoder (one hop), while the identity graph routes through ``ApplyInstantID`` — which
+    carries **both** conditionings — so a blind search could grab the wrong encoder. At each
+    pass-through node we follow the input **named for the role**, keeping positive and negative
+    apart; we fall back to the first conditioning link only if no same-named input exists.
+    """
+    seen: set[str] = set()
+    current: Any = link
+    while _is_link(current):
+        active: Any = current
+        node_id = active[0]
+        if node_id in seen:
+            break
+        seen.add(node_id)
+        node = workflow.get(node_id)
+        if node is None:
+            break
+        if node.get("class_type") == "CLIPTextEncode":
+            return node_id
+        inputs = node.get("inputs", {})
+        nxt: Any = inputs.get(role)
+        if not _is_link(nxt):
+            nxt = next((v for v in inputs.values() if _is_link(v)), None)
+        current = nxt
+    raise WorkflowError(f"could not trace a {role} CLIPTextEncode from {link!r}")
 
 
 def _resolve_upstream(workflow: Workflow, link: Any, class_type: str) -> str:

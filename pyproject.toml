@@ -1,6 +1,6 @@
 [project]
 name = "synthetic-portraits"
-version = "0.1.0"
+version = "0.2.0"
 description = "Text prompt -> photoreal upper-body image of a person who does not exist (SDXL via ComfyUI on RunPod)."
 readme = "README.md"
 requires-python = ">=3.11"

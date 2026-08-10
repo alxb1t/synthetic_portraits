@@ -53,10 +53,18 @@ Prerequisites: [uv](https://docs.astral.sh/uv/), a RunPod account, and the confi
 infra/up.sh
 ssh -i ~/.ssh/id_ed25519_runpod -N -L 8188:localhost:8188 root@<ip> -p <port>
 
-# 2. Generate headless (defaults to portrait 832×1216).
+# 2. Generate headless. The hardened default graph (latent hi-res + FaceDetailer) yields a
+#    clean, antelopev2-detectable face at any framing — including full-height, head-to-toe.
 uv run python generate.py \
-  --prompt "upper body portrait of a woman, olive linen shirt, front facing, soft daylight" \
+  --prompt "full body photo of a woman, full height, casual jacket and jeans, front facing" \
   --seed 42 -n 3 --out outputs
+
+# 2b. Same person across shots — point --identity at a hero face (InstantID). Pair it with
+#     --prompts (one prompt per line) to render a same-person character sheet with auto-regenerate.
+uv run python generate.py \
+  --identity outputs/hero.png \
+  --prompts sheet.txt \
+  --seed 42 --out outputs
 
 # 3. Verify every image has exactly one antelopev2-detectable frontal face.
 uv sync --group faces
@@ -66,12 +74,16 @@ uv run --group faces scripts/check_face.py outputs/*.png
 infra/down.sh
 ```
 
-`generate.py` flags: `--prompt`, `--model` (default `realvis-txt2img`), `--negative`,
-`--width` / `--height` (default 832×1216), `--seed`, `-n/--count`, `--out`, `--server`.
+`generate.py` flags: `--prompt` **or** `--prompts <file>` (mutually exclusive — the latter is a
+batch / character sheet), `--identity <hero.png>` (same person via InstantID; auto-selects the
+identity graph), `--model` (default `realvis-txt2img`), `--negative`, `--width` / `--height`
+(default 832×1216), `--seed`, `-n/--count`, `--out`, `--server`. The pipeline auto-regenerates
+(re-seeds) until each image has exactly one antelopev2-detectable face, then reports any it can't.
 
-The demo-input set for the consumer lives in [`examples/`](examples/) — upper-body shots in
-varied poses and clothing, each verified by `check_face.py` to contain exactly one
-antelopev2-detectable frontal face.
+The human-verified demo set lives in [`examples/`](examples/): a full-height **hero** (default
+path) plus a **same-person character sheet** — the same synthetic woman across varied poses,
+clothing, and scenes via `--identity`. Every image is verified by `check_face.py` to contain
+exactly one antelopev2-detectable frontal face.
 
 ## Development
 
@@ -91,5 +103,8 @@ uv run ty check    # type-check
   OpenRAIL++-M** license, which permits publishing generated outputs. You are responsible
   for using the outputs within that license's use restrictions and for disclosing them as
   AI-generated (see the notice above).
+- **InstantID / InsightFace (antelopev2):** the `--identity` feature and the `check_face.py`
+  gate use **InsightFace** models (antelopev2), which are released for **non-commercial /
+  research use only**. Keep `--identity` and the demo set within that restriction.
 - **This repository's code:** see [`LICENSE`](LICENSE) if present; otherwise all rights
   reserved by the author.

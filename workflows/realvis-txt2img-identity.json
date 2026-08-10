@@ -31,6 +31,50 @@
       "clip": ["4", 1]
     }
   },
+  "20": {
+    "class_type": "LoadImage",
+    "_meta": { "title": "Load Image (identity)" },
+    "inputs": {
+      "image": "PLACEHOLDER_HERO_IMAGE"
+    }
+  },
+  "21": {
+    "class_type": "InstantIDModelLoader",
+    "_meta": { "title": "Load InstantID Model" },
+    "inputs": {
+      "instantid_file": "ip-adapter.bin"
+    }
+  },
+  "22": {
+    "class_type": "InstantIDFaceAnalysis",
+    "_meta": { "title": "InstantID Face Analysis" },
+    "inputs": {
+      "provider": "CPU"
+    }
+  },
+  "23": {
+    "class_type": "ControlNetLoader",
+    "_meta": { "title": "Load Identity ControlNet" },
+    "inputs": {
+      "control_net_name": "diffusion_pytorch_model.safetensors"
+    }
+  },
+  "24": {
+    "class_type": "ApplyInstantID",
+    "_meta": { "title": "Apply InstantID" },
+    "inputs": {
+      "weight": 0.8,
+      "start_at": 0.0,
+      "end_at": 1.0,
+      "instantid": ["21", 0],
+      "insightface": ["22", 0],
+      "control_net": ["23", 0],
+      "image": ["20", 0],
+      "model": ["4", 0],
+      "positive": ["6", 0],
+      "negative": ["7", 0]
+    }
+  },
   "3": {
     "class_type": "KSampler",
     "_meta": { "title": "KSampler (Base)" },
@@ -41,9 +85,9 @@
       "sampler_name": "dpmpp_2m",
       "scheduler": "karras",
       "denoise": 1.0,
-      "model": ["4", 0],
-      "positive": ["6", 0],
-      "negative": ["7", 0],
+      "model": ["24", 0],
+      "positive": ["24", 1],
+      "negative": ["24", 2],
       "latent_image": ["5", 0]
     }
   },
@@ -66,9 +110,9 @@
       "sampler_name": "dpmpp_2m",
       "scheduler": "karras",
       "denoise": 0.55,
-      "model": ["4", 0],
-      "positive": ["6", 0],
-      "negative": ["7", 0],
+      "model": ["24", 0],
+      "positive": ["24", 1],
+      "negative": ["24", 2],
       "latent_image": ["10", 0]
     }
   },
@@ -116,11 +160,11 @@
       "wildcard": "",
       "cycle": 1,
       "image": ["8", 0],
-      "model": ["4", 0],
+      "model": ["24", 0],
       "clip": ["4", 1],
       "vae": ["4", 2],
-      "positive": ["6", 0],
-      "negative": ["7", 0],
+      "positive": ["24", 1],
+      "negative": ["24", 2],
       "bbox_detector": ["12", 0]
     }
   },

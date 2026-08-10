@@ -24,11 +24,26 @@ fi
 /opt/download_models.sh
 
 # Point ComfyUI at the volume's models (code is in the image, weights are on the volume).
+# v0.2 exposes the InstantID + FaceDetailer folders too, not just checkpoints; insightface
+# maps the antelopev2 pack (both InstantIDFaceAnalysis and the face gate resolve it there).
 cat > "${COMFYUI_HOME}/extra_model_paths.yaml" <<YAML
 runpod:
   base_path: ${MODELS_DIR}
   checkpoints: checkpoints
+  controlnet: controlnet
+  instantid: instantid
+  ultralytics: ultralytics
+  insightface: insightface
 YAML
+
+# extra_model_paths.yaml is not enough for two custom nodes: the Impact Subpack
+# (UltralyticsDetectorProvider) and the InstantID node resolve models from
+# ${COMFYUI_HOME}/models/<x> directly (folder_paths.models_dir) and IGNORE the yaml. Without
+# these symlinks the bbox detector list comes up empty and the InstantID node auto-downloads a
+# BROKEN (nested) antelopev2 pack. Point both dirs at the volume's copies. (Found live in Phase 6.)
+mkdir -p "${COMFYUI_HOME}/models"
+ln -sfn "${MODELS_DIR}/ultralytics" "${COMFYUI_HOME}/models/ultralytics"
+ln -sfn "${MODELS_DIR}/insightface" "${COMFYUI_HOME}/models/insightface"
 
 echo "launching ComfyUI on port ${COMFYUI_PORT}"
 cd "${COMFYUI_HOME}"

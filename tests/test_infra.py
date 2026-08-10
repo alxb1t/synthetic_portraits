@@ -7,6 +7,7 @@ here; ``docker build --check`` runs in the gate.
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -15,6 +16,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DOCKERFILE = REPO_ROOT / "Dockerfile"
+CONSTRAINTS = REPO_ROOT / "constraints.txt"
 DOWNLOAD = REPO_ROOT / "download_models.sh"
 START = REPO_ROOT / "infra" / "start.sh"
 UP = REPO_ROOT / "infra" / "up.sh"
@@ -46,6 +48,55 @@ def test_dockerfile_pins_cu128_pytorch():
     assert "cu128" in DOCKERFILE.read_text()
 
 
+def test_dockerfile_pins_v0_2_custom_nodes():
+    # InstantID + FaceDetailer (Impact Pack + Subpack) nodes, pinned to the exact commits
+    # verified in v0.2_research (Phase 0). Pins, not floating HEAD — reproducible builds.
+    text = DOCKERFILE.read_text()
+    assert "ComfyUI_InstantID" in text
+    assert "72495e806bc2ab9c41581e15ccaa1bcf83c477e8" in text
+    assert "ComfyUI-Impact-Pack" in text
+    assert "429d0159ad429e64d2b3916e6e7be9c22d025c3c" in text
+    assert "ComfyUI-Impact-Subpack" in text
+    assert "50c7b71a6a224734cc9b21963c6d1926816a97f1" in text
+
+
+def test_dockerfile_installs_face_and_detailer_deps_cpu_only():
+    text = DOCKERFILE.read_text()
+    # insightface + CPU onnxruntime + ultralytics power the face/detailer stack.
+    assert "insightface" in text
+    assert "onnxruntime" in text
+    assert "ultralytics" in text
+    # We never explicitly pip-install the GPU onnxruntime on our own line (Blackwell/cu128
+    # CUDA-match pain). It may still arrive transitively via a node dep; that copy is
+    # version-pinned through constraints.txt, not installed by us here.
+    assert not re.search(r"pip3 install[^\n]*\bonnxruntime-gpu\b", text)
+
+
+def test_dockerfile_pins_face_and_detailer_deps_for_reproducible_builds():
+    # Security S2: the four named deps are exact-pinned (== , not floating >=/unversioned),
+    # and every requirements-file install is constraint-locked to the validated set so a
+    # rebuild resolves the same tree instead of whatever PyPI serves that day.
+    text = DOCKERFILE.read_text()
+    assert "COPY constraints.txt" in text
+    for pin in ("insightface==", "onnxruntime==", "ultralytics==", "numpy=="):
+        assert pin in text, pin
+    req_installs = [ln for ln in text.splitlines() if re.search(r"pip3 install .*-r ", ln)]
+    assert req_installs, "expected requirements-file installs"
+    for ln in req_installs:
+        assert "-c /opt/constraints.txt" in ln, ln
+
+
+def test_constraints_file_pins_every_line_exactly():
+    # Every non-comment line is an exact `name==version` pin (no floating specifiers), and
+    # no URL/VCS requirement (pip forbids those in a constraints file).
+    lines = CONSTRAINTS.read_text().splitlines()
+    pins = [ln.strip() for ln in lines if ln.strip() and not ln.lstrip().startswith("#")]
+    assert pins, "expected version pins"
+    for pin in pins:
+        assert re.fullmatch(r"[A-Za-z0-9._-]+==[A-Za-z0-9._+!-]+", pin), pin
+    assert not any(" @ " in pin for pin in pins), "no URL/VCS requirements in constraints"
+
+
 def test_dockerfile_installs_requests():
     # ComfyUI imports `requests` (app/frontend_management.py) but does NOT declare it
     # in its requirements.txt — the minimal CUDA base lacks it, so ComfyUI crashes at
@@ -67,17 +118,94 @@ def test_dockerfile_launches_via_start_script():
     assert 'CMD ["/opt/start.sh"]' in text
 
 
-def test_download_is_idempotent_and_omits_extra_models():
+def test_download_is_idempotent_and_fetches_the_v0_2_model_set():
     text = DOWNLOAD.read_text()
     # Exact HF filename — the repo ships fp16/fp32 variants; the bare
     # RealVisXL_V5.0.safetensors does NOT exist (a boot-time 404 crash-loop bug).
     assert "RealVisXL_V5.0_fp16.safetensors" in text
-    assert "skip" in text.lower()  # skips files already present
-    # Prompt-only pipeline: no ControlNet and no InstantID model is fetched (a mention in a
-    # comment is fine — only the download URLs are checked).
+    assert "skip" in text.lower()  # skips files already present (idempotent)
     url_lines = [ln for ln in text.splitlines() if "https://" in ln]
-    assert not any("instantid" in ln.lower() for ln in url_lines)
-    assert not any("controlnet" in ln.lower() for ln in url_lines)
+    # v0.2 adds the InstantID stack + the FaceDetailer bbox model, from the pinned sources.
+    assert any("InstantX/InstantID" in ln and "ip-adapter.bin" in ln for ln in url_lines)
+    assert any("ControlNetModel" in ln for ln in url_lines)  # identity ControlNet
+    assert any("antelopev2" in ln for ln in url_lines)  # the 5-file insightface pack
+    assert any("face_yolov8m.pt" in ln for ln in url_lines)  # FaceDetailer bbox detector
+
+
+def test_download_isolates_models_into_their_target_dirs():
+    text = DOWNLOAD.read_text()
+    # Subfolder-isolated targets (dodge generic-filename collisions like config.json).
+    assert "instantid" in text  # models/instantid/ip-adapter.bin
+    assert "controlnet" in text  # models/controlnet/...
+    assert "insightface/models/antelopev2" in text  # the antelopev2 pack's ComfyUI path
+    assert "ultralytics/bbox" in text  # face_yolov8m.pt
+
+
+def test_download_pins_immutable_commit_revisions():
+    # Supply chain (security S1): every HF `resolve/<ref>/` must pin an IMMUTABLE commit SHA,
+    # never the mutable `main` branch — so a moved ref (or a compromised mirror force-moving
+    # `main`) can't silently swap the bytes we fetch. The URLs interpolate a `*_REV` variable;
+    # assert no `main` ref, that each resolve ref is a `_REV` var (or a literal SHA), and that
+    # every `_REV` variable is assigned a real 40-hex commit SHA.
+    text = DOWNLOAD.read_text()
+    assert "resolve/main/" not in text, "model URLs must not use the mutable `main` ref"
+    refs = re.findall(r"/resolve/([^/]+)/", text)
+    assert refs, "expected pinned resolve URLs"
+    for ref in refs:
+        assert re.fullmatch(r"[0-9a-f]{40}", ref) or re.fullmatch(r"\$\{\w*REV\w*\}", ref), (
+            f"resolve ref is neither a 40-hex commit SHA nor a *_REV pin: {ref}"
+        )
+    rev_defs = re.findall(r"^\w*REV\w*=\"?([^\"\n]+)\"?", text, re.MULTILINE)
+    assert rev_defs, "expected *_REV pin definitions"
+    for rev in rev_defs:
+        assert re.fullmatch(r"[0-9a-f]{40}", rev), f"*_REV pin is not a 40-hex commit SHA: {rev}"
+
+
+def test_download_verifies_sha256_and_aborts_on_mismatch():
+    # Security S1: two weights are code-executing pickle (.bin/.pt) loaded via torch.load-style
+    # paths, from third-party mirrors. Every download must be SHA-256 verified, and a mismatch
+    # must ABORT (non-zero exit) so a swapped/corrupt file is never moved into place.
+    text = DOWNLOAD.read_text()
+    assert "sha256sum" in text
+    assert "exit 1" in text  # checksum mismatch aborts the script
+    # The pickle weights specifically carry their recorded SHA-256 (the highest-risk files).
+    assert "02b3618e36d803784166660520098089a81388e61a93ef8002aa79a5b1c546e1" in text  # ip-adapter
+    assert "717923c19b3f4bbf5250b728f1fa6b2cb72a33aed1d236ea9caf0e21ad943e5f" in text  # yolov8m
+
+
+def test_download_records_a_checksum_for_every_fetched_file():
+    # Every download call passes a SHA-256 argument (a `_SHA` var, a literal, or the antelope
+    # `ANTELOPE_SHAS[i]` array) — no unverified fetch slips through. And every `_SHA` pin is a
+    # real 64-hex digest.
+    text = DOWNLOAD.read_text()
+    download_calls = [ln for ln in text.splitlines() if re.match(r"\s*download ", ln)]
+    assert download_calls, "expected download calls"
+    for ln in download_calls:
+        assert re.search(r"[0-9a-f]{64}", ln) or "_SHA" in ln or "SHAS" in ln, ln
+    sha_defs = re.findall(r"^\w*_SHA=\"?([^\"\n]+)\"?", text, re.MULTILINE)
+    assert sha_defs, "expected *_SHA pin definitions"
+    for sha in sha_defs:
+        assert re.fullmatch(r"[0-9a-f]{64}", sha), f"*_SHA pin is not a 64-hex digest: {sha}"
+
+
+def test_start_maps_the_v0_2_model_dirs_into_comfyui():
+    # ComfyUI code is in the image, weights on the volume — extra_model_paths must expose
+    # the new model folders (controlnet/instantid/ultralytics/insightface), not just checkpoints.
+    text = START.read_text()
+    for folder in ("controlnet", "instantid", "ultralytics", "insightface"):
+        assert folder in text, folder
+
+
+def test_start_symlinks_hardcoded_model_dirs_to_the_volume():
+    # The Impact Subpack (UltralyticsDetectorProvider) and the InstantID node resolve models
+    # from ``folder_paths.models_dir/<x>`` directly and IGNORE extra_model_paths.yaml — so the
+    # yaml mapping alone leaves the bbox list empty and makes InstantID auto-download a broken
+    # (nested) antelopev2. start.sh must symlink those two dirs onto the volume before ComfyUI
+    # launches. (Discovered live in Phase 6.)
+    text = START.read_text()
+    for folder in ("ultralytics", "insightface"):
+        # a symlink of ComfyUI's models/<folder> -> the volume's <folder>
+        assert re.search(rf"ln -s\S*\s+\S*{folder}\S*\s+\S*models/{folder}", text), folder
 
 
 def test_pod_scripts_use_runpod_rest_api():
