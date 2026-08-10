@@ -18,7 +18,9 @@ holds in memory) rather than a path.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+import hashlib
+import urllib.request
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
@@ -27,7 +29,29 @@ __all__ = [
     "FaceDetector",
     "FakeFaceDetector",
     "default_face_detector",
+    "ensure_antelopev2",
 ]
+
+# --- antelopev2 pins (security S1/S3) -------------------------------------------------
+# The pod fetches this pack via download_models.sh (pinned commit SHA + SHA-256 verified).
+# On the dev **host**, insightface's FaceAnalysis(name="antelopev2") would otherwise
+# auto-download the pack to ~/.insightface unpinned + unverified — so ensure_antelopev2()
+# stages the SAME files (identical rev + digests, kept in sync with download_models.sh by
+# tests/test_faces.py) before the detector is built. Third-party mirror → pin + checksum.
+_ANTELOPEV2_REV = "397cafa6d8310e96e302e96528c20a4c92a884f2"
+_ANTELOPEV2_BASE = (
+    "https://huggingface.co/MonsterMMORPG/InstantID_Models/"
+    f"resolve/{_ANTELOPEV2_REV}/models/antelopev2"
+)
+_ANTELOPEV2_SHA256 = {
+    "1k3d68.onnx": "df5c06b8a0c12e422b2ed8947b8869faa4105387f199c477af038aa01f9a45cc",
+    "2d106det.onnx": "f001b856447c413801ef5c42091ed0cd516fcd21f2d6b79635b1e733a7109dbf",
+    "genderage.onnx": "4fde69b1c810857b88c64a335084f1c3fe8f01246c9a191b48c7bb756d6652fb",
+    "glintr100.onnx": "4ab1d6435d639628a6f3e5008dd4f929edf4c4124b1a7169e1048f9fef534cdf",
+    "scrfd_10g_bnkps.onnx": "5838f7fe053675b1c7a08b633df49e7af5495cee0493c7dcf6697200b85b5b91",
+}
+
+Fetcher = Callable[[str, Path], None]
 
 
 @runtime_checkable
@@ -73,7 +97,7 @@ class AntelopeV2FaceDetector:
         import numpy as np  # ty: ignore[unresolved-import]
         from insightface.app import FaceAnalysis  # ty: ignore[unresolved-import]
 
-        _flatten_antelopev2_pack()
+        ensure_antelopev2()
         app = FaceAnalysis(name="antelopev2", providers=["CPUExecutionProvider"])
         app.prepare(ctx_id=-1, det_size=det_size)
         self._app = app
@@ -93,16 +117,48 @@ def default_face_detector() -> FaceDetector:
     return AntelopeV2FaceDetector()
 
 
-def _flatten_antelopev2_pack() -> None:
-    """Work around insightface's antelopev2 download bug: the zip extracts to a nested
-    ``antelopev2/antelopev2/*.onnx`` folder, so FaceAnalysis can't find the models. Move any
-    nested ``.onnx`` up one level. Mirrors the fix in ``scripts/check_face.py``."""
-    root = Path.home() / ".insightface" / "models" / "antelopev2"
-    nested = root / "antelopev2"
-    if nested.is_dir():
-        for onnx in nested.glob("*.onnx"):
-            target = root / onnx.name
-            if not target.exists():
-                onnx.rename(target)
-        if not any(nested.iterdir()):
-            nested.rmdir()
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _urlretrieve(url: str, dest: Path) -> None:
+    with urllib.request.urlopen(url) as response, dest.open("wb") as handle:
+        while chunk := response.read(1 << 20):
+            handle.write(chunk)
+
+
+def ensure_antelopev2(
+    root: Path | None = None,
+    *,
+    fetch: Fetcher = _urlretrieve,
+    digests: Mapping[str, str] = _ANTELOPEV2_SHA256,
+    base_url: str = _ANTELOPEV2_BASE,
+) -> Path:
+    """Stage the pinned + SHA-256-verified antelopev2 pack so the dev-host face gate never
+    lets insightface auto-download it unpinned + unverified (security S3).
+
+    Idempotent: a file already present with the expected digest is left in place. Each file
+    is fetched to a ``.partial`` and verified **before** it lands under its real name, so a
+    tampered or interrupted download is never trusted (mismatch → remove + abort). Returns
+    the antelopev2 model directory (default ``~/.insightface/models/antelopev2``).
+    """
+    root = root or (Path.home() / ".insightface" / "models" / "antelopev2")
+    root.mkdir(parents=True, exist_ok=True)
+    for name, expected in digests.items():
+        dest = root / name
+        if dest.exists() and _sha256_file(dest) == expected:
+            continue
+        partial = root / f"{name}.partial"
+        fetch(f"{base_url}/{name}", partial)
+        actual = _sha256_file(partial)
+        if actual != expected:
+            partial.unlink(missing_ok=True)
+            raise RuntimeError(
+                f"SHA-256 mismatch for antelopev2/{name}: expected {expected}, got {actual}"
+            )
+        partial.replace(dest)
+    return root

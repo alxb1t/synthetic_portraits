@@ -24,28 +24,17 @@ from pathlib import Path
 Detector = Callable[[Path], int]
 
 
-def _flatten_antelopev2_pack() -> None:
-    """Work around insightface's antelopev2 download bug: the zip extracts to a nested
-    ``antelopev2/antelopev2/*.onnx`` folder, so FaceAnalysis can't find the models
-    (``AssertionError: 'detection' in self.models``). Move any nested .onnx up one level."""
-    root = Path.home() / ".insightface" / "models" / "antelopev2"
-    nested = root / "antelopev2"
-    if nested.is_dir():
-        for onnx in nested.glob("*.onnx"):
-            target = root / onnx.name
-            if not target.exists():
-                onnx.rename(target)
-        if not any(nested.iterdir()):
-            nested.rmdir()
-
-
 def _antelopev2_detector() -> Detector:
     """Build the real insightface/antelopev2 detector (CPU). Imported lazily so the
     gate and tests never need insightface installed."""
     import cv2  # ty: ignore[unresolved-import]
     from insightface.app import FaceAnalysis  # ty: ignore[unresolved-import]
 
-    _flatten_antelopev2_pack()
+    from synthetic_portraits.faces import ensure_antelopev2
+
+    # Stage the pinned + SHA-256-verified pack so insightface never auto-downloads it
+    # unpinned + unverified on the dev host (security S3).
+    ensure_antelopev2()
     app = FaceAnalysis(name="antelopev2", providers=["CPUExecutionProvider"])
     app.prepare(ctx_id=-1, det_size=(640, 640))
 
