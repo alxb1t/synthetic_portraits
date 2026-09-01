@@ -14,7 +14,7 @@ Until phase 1 lands there is no `make gate`; run the five commands directly. Fro
 
 - [x] 1 — The declared gate: `minions.toml`, `Makefile`, CI, lint selectors
 - [x] 2 — `CLAUDE.md`: rewritten to the template
-- [ ] 3 — Cut the vault coupling, and guard it with a test
+- [x] 3 — Cut the vault coupling, and guard it with a test
 - [ ] 4 — `openspec/config.yaml`: the authoring context
 - [ ] 5 — `CHANGELOG.md` and the version line
 - [ ] 6 — `README.md`, and the whole-change verification
@@ -92,16 +92,16 @@ carries the change-cutting facts and points at the tools for the rest.
 
 Test-first: 3.1 is written red, before the edits that make it green.
 
-- [ ] 3.1 Add `tests/test_repo_hygiene.py` asserting that no tracked file (excluding `.env`, which is
+- [x] 3.1 Add `tests/test_repo_hygiene.py` asserting that no tracked file (excluding `.env`, which is
       gitignored) contains `VAULT_PROJECT_DIR`, an absolute `/Users/` path, or any other real absolute
       path from the host. Enumerate via `git ls-files`, so the assertion covers the tracked set rather
       than a hand-listed one. Verify: the test **fails** on the current tree naming the known sites, then
       passes after 3.2–3.3.
-- [ ] 3.2 Remove `VAULT_PROJECT_DIR` from `.env.example`, leaving it path-free and declaring shape only.
+- [x] 3.2 Remove `VAULT_PROJECT_DIR` from `.env.example`, leaving it path-free and declaring shape only.
       Verify: `grep -c VAULT .env.example` is 0, and the remaining keys carry no value from this machine.
-- [ ] 3.3 Remove the vault reference from `synthetic_portraits/__init__.py`'s module docstring. Verify:
+- [x] 3.3 Remove the vault reference from `synthetic_portraits/__init__.py`'s module docstring. Verify:
       `grep -rin vault -- $(git ls-files ':!openspec/*')` returns nothing.
-- [ ] 3.4 Confirm the repo resolves no path outside itself. Verify: `test_repo_hygiene.py` passes and the
+- [x] 3.4 Confirm the repo resolves no path outside itself. Verify: `test_repo_hygiene.py` passes and the
       full gate is green.
 
 ## 4. `openspec/config.yaml` — the authoring context

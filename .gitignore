@@ -1,4 +1,4 @@
-# Secrets & local config — never commit (holds VAULT_PROJECT_DIR + RunPod key, etc.)
+# Secrets & local config — never commit (the RunPod API key and volume ids).
 .env
 
 # Rendered scratch output (the curated demo set lives in examples/)
