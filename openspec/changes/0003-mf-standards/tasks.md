@@ -15,7 +15,7 @@ Until phase 1 lands there is no `make gate`; run the five commands directly. Fro
 - [x] 1 — The declared gate: `minions.toml`, `Makefile`, CI, lint selectors
 - [x] 2 — `CLAUDE.md`: rewritten to the template
 - [x] 3 — Cut the vault coupling, and guard it with a test
-- [ ] 4 — `openspec/config.yaml`: the authoring context
+- [x] 4 — `openspec/config.yaml`: the authoring context
 - [ ] 5 — `CHANGELOG.md` and the version line
 - [ ] 6 — `README.md`, and the whole-change verification
 
@@ -106,10 +106,10 @@ Test-first: 3.1 is written red, before the edits that make it green.
 
 ## 4. `openspec/config.yaml` — the authoring context
 
-- [ ] 4.1 Fill `context:` as a **pointer** — `CLAUDE.md` for this repo's facts and its change-cutting
+- [x] 4.1 Fill `context:` as a **pointer** — `CLAUDE.md` for this repo's facts and its change-cutting
       section, not restated, the page winning where they disagree. Verify: the block contains no copy of
       the gate array and no restatement of the loop.
-- [ ] 4.2 Fill `rules:` for `proposal`, `specs`, `design` and `tasks` with only what an author cannot
+- [x] 4.2 Fill `rules:` for `proposal`, `specs`, `design` and `tasks` with only what an author cannot
       derive from `CLAUDE.md` — including the `skip_specs` + `.gitkeep` pairing, one `spec.md` per
       capability directory, "never invent a requirement", "record the measurement behind each decision",
       and the phase/`## Progress` task format this repo's builder parses. Verify:
