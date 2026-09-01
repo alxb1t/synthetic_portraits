@@ -13,7 +13,7 @@ Until phase 1 lands there is no `make gate`; run the five commands directly. Fro
 ## Progress
 
 - [x] 1 — The declared gate: `minions.toml`, `Makefile`, CI, lint selectors
-- [ ] 2 — `CLAUDE.md`: rewritten to the template
+- [x] 2 — `CLAUDE.md`: rewritten to the template
 - [ ] 3 — Cut the vault coupling, and guard it with a test
 - [ ] 4 — `openspec/config.yaml`: the authoring context
 - [ ] 5 — `CHANGELOG.md` and the version line
@@ -62,27 +62,30 @@ Second, not first, and deliberately so — design D6. It quotes the array from p
 would document a gate no file declares. This repo writes **no `docs/sdd.md`** (design D10), so this file
 carries the change-cutting facts and points at the tools for the rest.
 
-- [ ] 2.1 Rewrite `CLAUDE.md` whole from the template: the one-paragraph what-it-is, the gate **quoted
+- [x] 2.1 Rewrite `CLAUDE.md` whole from the template: the one-paragraph what-it-is, the gate **quoted
       from the array**, the seams, the engineering conventions, `## How a change is cut here` (scaffold →
       author → validate, with the OpenSpec version and the `Change:` trailer rule), the guardrails, and
-      the layout. Verify: `grep -n '<[a-z-]\+>' CLAUDE.md` returns nothing, and `wc -l CLAUDE.md` is
-      **≤ 120** (target ~100).
-- [ ] 2.2 Point at the tools for the method rather than restating it (design D10): `openspec instructions
+      the layout. Verify: no unfilled template placeholder remains **in prose** —
+      `sed 's/`[^`]*`//g' CLAUDE.md | grep -c '<[a-z-]\+>'` is 0 — and `wc -l CLAUDE.md` is **≤ 120**
+      (target ~100). The check strips code spans first: angle brackets inside backticks are command
+      metasyntax (`openspec new change <NNNN-slug>`), which the CLAUDE.md template itself ships, so the
+      unstripped grep this task originally specified could never pass. Corrected during phase 2.
+- [x] 2.2 Point at the tools for the method rather than restating it (design D10): `openspec instructions
       <artifact>` owns artifact structure, and the `mf-build` / `mf-converge` / `mf-release` /
       `mf-backlog-export` skills own the build, check, converge and release loop. Name them; do **not**
       restate the loop, the findings contract or the release fold. Verify: `CLAUDE.md` names all four
       skills and contains no restatement of the findings contract.
-- [ ] 2.3 In the gate section, record why `docker build --check` is **not** in the array (design D1), so
+- [x] 2.3 In the gate section, record why `docker build --check` is **not** in the array (design D1), so
       its absence reads as a decision rather than an oversight. Verify:
       `grep -c 'docker build --check' CLAUDE.md` is at least 1.
-- [ ] 2.4 Remove the "plan lives in a private vault" section and every method restatement, leaving facts
+- [x] 2.4 Remove the "plan lives in a private vault" section and every method restatement, leaving facts
       only — no numbered "first do X" ritual. Verify: `grep -ci 'vault\|implementation_plan' CLAUDE.md`
       is 0.
-- [ ] 2.5 Confirm every directory named in the layout section exists — this change creates **no**
+- [x] 2.5 Confirm every directory named in the layout section exists — this change creates **no**
       `docs/` tree (deferred), so the layout must not name one — and that the five gate lines match
       `.minions/minions.toml`. Verify: each path in the layout resolves on disk; the gate lines diff
       clean against the array.
-- [ ] 2.6 Do **not** create `AGENTS.md` (design D7 — edit whichever exists, never write both). Verify:
+- [x] 2.6 Do **not** create `AGENTS.md` (design D7 — edit whichever exists, never write both). Verify:
       `test ! -e AGENTS.md`.
 
 ## 3. Cut the vault coupling, and guard it with a test
