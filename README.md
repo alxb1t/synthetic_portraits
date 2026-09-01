@@ -4,10 +4,13 @@ A self-hosted, headless pipeline: **text prompt → photoreal upper-body image o
 who does not exist** — face, torso, arms, hands, and clothes — using open SDXL models
 (**RealVisXL V5.0**) via **ComfyUI** on an on-demand **RunPod** GPU.
 
+**Status:** v0.3 in progress on `v0.3_mf_standards`; **v0.2.0** is the latest release —
+identity preservation via InstantID, a hardened default graph, and the three security fixes.
+See [`CHANGELOG.md`](CHANGELOG.md).
+
 One prompt → one person; another prompt → another person. Clothing and pose are driven from
-the prompt; hands are shown by default (SDXL hand quality varies — sharpening it is a v0.2
-item). Every image is framed as **upper-body** so it always contains one large, clear,
-frontal face.
+the prompt; hands are shown by default. Every image is framed to contain one large, clear,
+frontal face — including at full height, via the hi-res pass and FaceDetailer added in v0.2.
 
 > ## ⚠️ AI-generated people — not real individuals
 >
@@ -88,14 +91,34 @@ exactly one antelopev2-detectable frontal face.
 ## Development
 
 Runtime code is **zero third-party dependency** (stdlib only). The dev toolchain is managed
-with uv; the ComfyUI transport is fully mocked in tests, so **no test touches a GPU**.
+with uv; the ComfyUI transport and the face detector are both faked in tests, so **no test
+touches a GPU or the network**.
+
+### The quality gate
+
+A unit of work is done when the gate is green — run, never summarized. One command:
 
 ```bash
-uv sync            # create the dev environment
-uv run pytest      # tests (ComfyUI transport fully mocked — no GPU)
-uv run ruff check  # lint
-uv run ty check    # type-check
+make gate
 ```
+
+It runs the five commands declared in `.minions/minions.toml`'s `gate` array, in order:
+
+```bash
+uv sync --locked         # the environment: certifies what uv.lock pins
+uv run ruff format --check .   # format
+uv run ruff check .            # lint
+uv run ty check                # types
+uv run pytest -q               # tests, offline and deterministic
+```
+
+That array is the single source of truth. `Makefile`, `.github/workflows/ci.yml`, this
+section and `CLAUDE.md` mirror it — change one, change all four. `docker build --check` is
+deliberately outside the array (it needs a running Docker daemon); the image is built for
+real by `.github/workflows/build-image.yml` on every push to `main`.
+
+Work is defined before it is built, as a change under `openspec/changes/`. See
+[`CLAUDE.md`](CLAUDE.md) for how a change is cut here.
 
 ## Licensing
 

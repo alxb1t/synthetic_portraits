@@ -20,9 +20,9 @@ files and the annotated tag are one line — they agree, or the release halts.
   `ruff format --check .`.
 - **`.python-version`**, pinning 3.11 — the environment was resolving 3.12 while
   `requires-python`, `ruff target-version` and `ty python-version` all said 3.11.
-- **`tests/test_repo_hygiene.py`** — four guards asserting no tracked file contains the
-  operator's home directory, this repository's own absolute root, the vault environment
-  variable, or a mention of the private vault.
+- **`tests/test_repo_hygiene.py`** — four guards asserting no file in the tree contains the
+  operator's home directory, this repository's own absolute root, or any reference to the
+  external private notes directory the plan of record used to live in.
 - **`tests/test_version_line.py`** — asserts the package's `__version__` and
   `pyproject.toml` agree, so the version line cannot silently drift again.
 - **The OpenSpec tree** (`openspec/`), with an authoring `config.yaml` whose context points
@@ -44,9 +44,13 @@ files and the annotated tag are one line — they agree, or the release halts.
   `Callable[[float], None]`, and `workflow.py`'s three JSON node-input parameters are
   `object` rather than `Any`. `spec` and `spec_exempt` markers are registered but bind
   nothing yet.
-- **The repository resolves no path outside itself.** `VAULT_PROJECT_DIR` is gone from
-  `.env.example`, and the package docstring and `.gitignore` no longer refer to the private
-  vault. The plan of record is in-repo, under `openspec/changes/`.
+- **The repository resolves no path outside itself.** The environment variable that pointed
+  `.env.example` at an external private notes directory is gone, along with the references
+  to it in the package docstring and `.gitignore`. The plan of record is in-repo, under
+  `openspec/changes/`.
+- **`README.md` states the gate** — `make gate` and the five commands in array order — and
+  carries a current status line pointing at this changelog, replacing a stale note calling
+  a shipped v0.2 feature an open item.
 
 ### Fixed
 
@@ -55,6 +59,9 @@ files and the annotated tag are one line — they agree, or the release halts.
   on a clean checkout.
 - **`synthetic_portraits.__version__` was stuck at `0.1.0`** while `pyproject.toml` said
   `0.2.0` — a second, unreferenced version declaration that had drifted a full release.
+- **The repo-hygiene guard enumerated only tracked files**, so a newly written file passed
+  the gate until its first commit and any violation in it surfaced a phase later. It now
+  lists untracked-but-not-ignored files too, and so sees a file before it is committed.
 
 ## [0.2.0] — 2026-08-10
 

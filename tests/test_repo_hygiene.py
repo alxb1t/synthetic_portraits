@@ -30,14 +30,20 @@ _VAULT_WORD = "va" + "ult"
 
 
 def _tracked_files() -> list[str]:
+    """Every file git would carry: tracked, plus untracked-and-not-ignored.
+
+    ``--others --exclude-standard`` is load-bearing. Listing only tracked files let a
+    newly written file pass this guard until its first commit, so the gate went green on
+    an incomplete set and the violation surfaced one phase later.
+    """
     out = subprocess.run(
-        ["git", "ls-files", "-z"],
+        ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
         check=True,
     ).stdout
-    return [p for p in out.split("\0") if p]
+    return sorted({p for p in out.split("\0") if p and (REPO_ROOT / p).is_file()})
 
 
 def _read(path: str) -> str:

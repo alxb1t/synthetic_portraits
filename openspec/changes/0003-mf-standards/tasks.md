@@ -17,7 +17,7 @@ Until phase 1 lands there is no `make gate`; run the five commands directly. Fro
 - [x] 3 — Cut the vault coupling, and guard it with a test
 - [x] 4 — `openspec/config.yaml`: the authoring context
 - [x] 5 — `CHANGELOG.md` and the version line
-- [ ] 6 — `README.md`, and the whole-change verification
+- [x] 6 — `README.md`, and the whole-change verification
 
 ---
 
@@ -127,15 +127,15 @@ Test-first: 3.1 is written red, before the edits that make it green.
 
 ## 6. `README.md`, and the whole-change verification
 
-- [ ] 6.1 Add a gate section to `README.md` stating `make gate` and the five commands in array order, and
+- [x] 6.1 Add a gate section to `README.md` stating `make gate` and the five commands in array order, and
       refresh "current status" to v0.3. Verify: the five commands appear in order, and no stale v0.2
       status line remains.
-- [ ] 6.2 Diff the array against its four mirrors by eye — `.minions/minions.toml` (the source) against
+- [x] 6.2 Diff the array against its four mirrors by eye — `.minions/minions.toml` (the source) against
       `Makefile`, `ci.yml`, `README.md` and `CLAUDE.md`. Verify: all five files carry the same commands in
       the same order.
-- [ ] 6.3 Run the whole gate and the validator, and report the output rather than summarizing it. Verify:
+- [x] 6.3 Run the whole gate and the validator, and report the output rather than summarizing it. Verify:
       `make gate` exits 0 with **at least 121 passed** (120 + the guard test(s) from phase 3), and
       `openspec validate --all --strict` exits 0.
-- [ ] 6.4 Confirm every commit of this change carries its trailer. Verify:
+- [x] 6.4 Confirm every commit of this change carries its trailer. Verify:
       `git log --grep "Change: 0003-mf-standards" --oneline | wc -l` equals the number of phase commits,
       and `git log -1 --format=%B` shows the trailer contiguous with `Co-Authored-By:`.
