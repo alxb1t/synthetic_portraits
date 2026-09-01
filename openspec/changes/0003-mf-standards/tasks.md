@@ -16,7 +16,7 @@ Until phase 1 lands there is no `make gate`; run the five commands directly. Fro
 - [x] 2 — `CLAUDE.md`: rewritten to the template
 - [x] 3 — Cut the vault coupling, and guard it with a test
 - [x] 4 — `openspec/config.yaml`: the authoring context
-- [ ] 5 — `CHANGELOG.md` and the version line
+- [x] 5 — `CHANGELOG.md` and the version line
 - [ ] 6 — `README.md`, and the whole-change verification
 
 ---
@@ -117,11 +117,11 @@ Test-first: 3.1 is written red, before the edits that make it green.
 
 ## 5. `CHANGELOG.md` and the version line
 
-- [ ] 5.1 Create `CHANGELOG.md` in Keep a Changelog + SemVer form, backfilling `## [0.2.0]` and
+- [x] 5.1 Create `CHANGELOG.md` in Keep a Changelog + SemVer form, backfilling `## [0.2.0]` and
       `## [0.1.0]` from the existing annotated tags, and opening `## [Unreleased]` with one entry per
       phase already built (1–4). Verify: both released sections exist with their tag dates, and
       `## [Unreleased]` names phases 1–4.
-- [ ] 5.2 Bump `pyproject.toml` `version` `0.2.0` → `0.3.0` (design D8) and refresh `uv.lock`. Verify:
+- [x] 5.2 Bump `pyproject.toml` `version` `0.2.0` → `0.3.0` (design D8) and refresh `uv.lock`. Verify:
       the version file, `proposal.md`'s `version: v0.3` and the `## [Unreleased]` heading-to-be all agree;
       `uv sync --locked` exits 0. The **tag is not created here** — `mf-release` cuts it.
 
