@@ -32,10 +32,11 @@ package = false
 pythonpath = [".", "scripts"]
 testpaths = ["tests"]
 addopts = "-q"
-# Registered so a marker can never be silently ignored. Reserved for the spec-to-test
-# binding: no checker exists yet, and none is in the gate array (change 0003 design D4).
+# Registered so a marker can never be silently ignored. `spec` carries the spec-to-test
+# binding: every scenario Key under openspec/ has at least one marked test. No checker
+# enforces that and none is in the gate array (change 0003, design D4 as updated by D12).
 markers = [
-    "spec: binds this test to a spec scenario Key, as `spec(\"<cap>:<req>:<scenario>\")`",
+    "spec: binds this test to a spec scenario Key, as `spec(\"<capability>.<scenario>\")`",
     "spec_exempt: structural test with no scenario to bind, as `spec_exempt(\"<reason>\")`",
 ]
 

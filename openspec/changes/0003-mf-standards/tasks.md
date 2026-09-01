@@ -18,7 +18,7 @@ Until phase 1 lands there is no `make gate`; run the five commands directly. Fro
 - [x] 4 — `openspec/config.yaml`: the authoring context
 - [x] 5 — `CHANGELOG.md` and the version line
 - [x] 6 — `README.md`, and the whole-change verification
-- [ ] 7 — Backfill the specs to represent the current functionality
+- [x] 7 — Backfill the specs to represent the current functionality
 
 ---
 
@@ -149,40 +149,49 @@ across seven runtime modules. That reasoning is unchanged and still worth knowin
 large enough that it may warrant splitting once 7.1 has measured it. D3 and the proposal's
 non-goal are updated by 7.4 rather than left contradicting this list.
 
-**The ordering constraint is mechanical, not stylistic.** `skip_specs: true` and the presence of
-any file under `specs/` are mutually exclusive — `skip_specs` with spec files fails with *"skip_specs
-is set but spec files exist"*, and neither one fails with *"Change must have at least one delta."*
-So 7.2 and 7.3 land in the **same commit**; doing either alone leaves the validator red.
+**Where the specs go — corrected by the human on 2026-09-02 (design D14).** 7.2 and 7.3 were first
+written to cut the backfill as an `## ADDED Requirements` delta under this change, which would have
+made it delta-bearing. That was wrong: a delta states what a change *changes*, and every one of these
+scenarios describes behaviour that shipped in v0.1 or v0.2. The backfill is written **directly into
+the living tree**, `openspec/specs/<capability>/spec.md`, as `## Requirements` — and this change
+therefore stays **zero-delta** (`skip_specs: true` + `specs/.gitkeep`), because documenting existing
+behaviour proposes no requirement change. The two tasks below are restated to match.
 
 Specs describe **what the system already does** — this phase adds no behaviour and changes no test's
 meaning. A requirement that no existing test proves is a requirement this repo has not earned;
 record it as a gap in `design.md` rather than writing a scenario the code does not satisfy.
 
-- [ ] 7.1 Enumerate the capabilities from the behaviour that already exists, working from the test
+- [x] 7.1 Enumerate the capabilities from the behaviour that already exists, working from the test
       suite and the CLI surface (`--prompt`/`--prompts`, `--identity`, `--model`, `--negative`,
       `--width`/`--height`, `--seed`, `--count`, `--out`, `--server`) rather than from the module
       layout — capabilities are behavioural, not a mirror of `synthetic_portraits/*.py`. Record the
       list and the test files backing each in `design.md`. Verify: every capability names at least
       one existing test that proves it, and no capability is listed for behaviour the suite does not
       cover.
-- [ ] 7.2 Write one `specs/<capability>/spec.md` per capability under the change, as
-      `## ADDED Requirements`, each `### Requirement:` carrying `#### Scenario:` blocks with a stable
-      `Key:` and the `Layers:` it is proved at. One `spec.md` per capability **directory** — a
-      `spec.md` at the root of `specs/` is a malformed change. Verify:
-      `openspec validate 0003-mf-standards --strict` exits 0.
-- [ ] 7.3 In the **same commit** as 7.2, flip the change from zero-delta to delta-bearing: remove
-      `skip_specs: true` from `.openspec.yaml` and delete `specs/.gitkeep`. Verify: the validator is
-      green, and `grep -c skip_specs openspec/changes/0003-mf-standards/.openspec.yaml` is 0 with no
-      `.gitkeep` remaining.
-- [ ] 7.4 Reconcile the artifacts this phase reverses: replace `proposal.md`'s "New Capabilities:
-      None" with the enumerated list, delete the now-obsolete "Backfilling `openspec/specs/`"
-      non-goal, and rewrite `design.md` D3 to record the reversal and its date rather than the
-      superseded decision. Verify: `grep -c "None. This change adds no behaviour" proposal.md` is 0.
-- [ ] 7.5 Bind every scenario to a proving test — `@pytest.mark.spec("<key>")` on at least one test
-      per `Key:`. Structural guards keep `spec_exempt`. Verify: every `Key:` value in the delta
-      appears in at least one `pytest.mark.spec` marker under `tests/`, checked by a command whose
-      exit code decides it, and the full gate stays green. The binding **checker** stays deferred
+- [x] 7.2 Write one `openspec/specs/<capability>/spec.md` per capability **in the living tree**, as
+      `## Purpose` + `## Requirements`, each `### Requirement:` carrying `#### Scenario:` blocks with
+      a stable `Key:` and the `Layers:` it is proved at. One `spec.md` per capability **directory** —
+      a `spec.md` at the root of `specs/` is malformed. Verify: `openspec validate --all --strict`
+      exits 0 and reports one `spec/<capability>` item per capability.
+- [x] 7.3 Leave this change **zero-delta**: `skip_specs: true` in `.openspec.yaml` and
+      `specs/.gitkeep` present, with its own `specs/` holding no `.md` file. The two are mutually
+      exclusive — `skip_specs` with spec files fails with *"skip_specs is set but spec files exist"*,
+      and omitting it on an empty `specs/` fails with *"Change must have at least one delta."*
+      Verify: `grep -c skip_specs openspec/changes/0003-mf-standards/.openspec.yaml` is 1, the
+      `.gitkeep` is tracked, and `find openspec/changes/0003-mf-standards/specs -name '*.md'` is
+      empty.
+- [x] 7.4 Reconcile the artifacts this phase reverses: enumerate the seven capabilities in
+      `proposal.md` under a `New Capabilities` section that still declares **no delta**, delete the
+      now-obsolete "Backfilling `openspec/specs/`" non-goal, and rewrite `design.md` D3 to record
+      both the 2026-09-01 reversal and the 2026-09-02 correction that restored `skip_specs`
+      (D14). Verify: `grep -c "Backfilling .openspec/specs/." proposal.md` is 0, and the proposal's
+      capability list names all seven directories present under `openspec/specs/`.
+- [x] 7.5 Bind every scenario to a proving test — `@pytest.mark.spec("<key>")` on at least one test
+      per `Key:`. Structural guards keep `spec_exempt`. Verify: every `Key:` value in
+      `openspec/specs/` appears in at least one `pytest.mark.spec` marker under `tests/`, and no
+      marker names a `Key:` the tree does not carry — checked by a command whose exit code decides
+      it — and the full gate stays green. The binding **checker** stays deferred
       (design D4) — this task proves the binding exists, it does not add a gate entry.
-- [ ] 7.6 Append the phase's `CHANGELOG` entry, run the whole gate and the validator, and report
+- [x] 7.6 Append the phase's `CHANGELOG` entry, run the whole gate and the validator, and report
       their output rather than summarizing it. Verify: `make gate` exits 0 and
       `openspec validate --all --strict` exits 0.

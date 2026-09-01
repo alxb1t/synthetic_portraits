@@ -11,6 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import check_face
+import pytest
 
 
 def _fake(counts: dict[str, int]):
@@ -22,24 +23,28 @@ def _fake(counts: dict[str, int]):
     return detect
 
 
+@pytest.mark.spec("faces.check-one-passes")
 def test_exactly_one_face_passes():
     ok, n = check_face.check_image("a.png", detector=lambda _p: 1)
     assert ok is True
     assert n == 1
 
 
+@pytest.mark.spec("faces.check-zero-fails")
 def test_zero_faces_fails():
     ok, n = check_face.check_image("a.png", detector=lambda _p: 0)
     assert ok is False
     assert n == 0
 
 
+@pytest.mark.spec("faces.check-many-fails")
 def test_multiple_faces_fails():
     ok, n = check_face.check_image("a.png", detector=lambda _p: 2)
     assert ok is False
     assert n == 2
 
 
+@pytest.mark.spec("faces.check-exit-zero")
 def test_main_returns_zero_when_all_images_have_one_face(tmp_path, capsys):
     imgs = [tmp_path / "a.png", tmp_path / "b.png"]
     for p in imgs:
@@ -49,6 +54,7 @@ def test_main_returns_zero_when_all_images_have_one_face(tmp_path, capsys):
     assert rc == 0
 
 
+@pytest.mark.spec("faces.check-exit-one")
 def test_main_returns_nonzero_when_any_image_fails(tmp_path):
     imgs = [tmp_path / "a.png", tmp_path / "b.png"]
     for p in imgs:
@@ -58,6 +64,7 @@ def test_main_returns_nonzero_when_any_image_fails(tmp_path):
     assert rc == 1
 
 
+@pytest.mark.spec("faces.check-no-images")
 def test_main_with_no_images_is_an_error():
     # Nothing to check is a usage error, not a silent pass.
     rc = check_face.main([], detector=lambda _p: 1)

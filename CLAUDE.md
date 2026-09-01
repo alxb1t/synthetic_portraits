@@ -88,7 +88,7 @@ halting rules and findings contract. This repo keeps no `docs/sdd.md` — a thir
 The tooling is **operator tooling, recorded and not pinned**: `@fission-ai/openspec@1.11.0` on `PATH`,
 initialized with `--tools none`. It is deliberately **not** in the gate array — nothing in CI runs it, so a
 moving version can never turn CI red. The binding authority for the code is the array, whose last entry is
-`pytest -q`; there is no spec↔test binding check yet (no spec tree binds).
+`pytest -q`; `openspec/specs/` binds every scenario `Key:` to a test by marker, but nothing enforces it.
 
 ---
 

@@ -26,6 +26,7 @@ DOWN = REPO_ROOT / "infra" / "down.sh"
 SHELL_SCRIPTS = [DOWNLOAD, START, UP, DOWN]
 
 
+@pytest.mark.spec("pod.infra-files-present")
 def test_infra_files_exist():
     for path in [DOCKERFILE, DOWNLOAD, START, UP, DOWN]:
         assert path.exists(), path
@@ -33,22 +34,26 @@ def test_infra_files_exist():
 
 @pytest.mark.skipif(shutil.which("bash") is None, reason="bash not available")
 @pytest.mark.parametrize("script", SHELL_SCRIPTS, ids=lambda p: p.name)
+@pytest.mark.spec("pod.scripts-syntax-clean")
 def test_shell_scripts_pass_bash_syntax_check(script: Path):
     result = subprocess.run(["bash", "-n", str(script)], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
 
 
 @pytest.mark.parametrize("script", SHELL_SCRIPTS, ids=lambda p: p.name)
+@pytest.mark.spec("pod.scripts-strict-mode")
 def test_shell_scripts_are_strict(script: Path):
     # Fail fast on errors/unset vars/pipe failures.
     assert "set -euo pipefail" in script.read_text()
 
 
+@pytest.mark.spec("pod.pins-torch")
 def test_dockerfile_pins_cu128_pytorch():
     # The Blackwell/sm_120 requirement — cu124 fails at runtime.
     assert "cu128" in DOCKERFILE.read_text()
 
 
+@pytest.mark.spec("pod.pins-custom-nodes")
 def test_dockerfile_pins_v0_2_custom_nodes():
     # InstantID + FaceDetailer (Impact Pack + Subpack) nodes, pinned to the exact commits
     # verified in v0.2_research (Phase 0). Pins, not floating HEAD — reproducible builds.
@@ -61,6 +66,7 @@ def test_dockerfile_pins_v0_2_custom_nodes():
     assert "50c7b71a6a224734cc9b21963c6d1926816a97f1" in text
 
 
+@pytest.mark.spec("pod.pins-face-deps")
 def test_dockerfile_installs_face_and_detailer_deps_cpu_only():
     text = DOCKERFILE.read_text()
     # insightface + CPU onnxruntime + ultralytics power the face/detailer stack.
@@ -73,6 +79,7 @@ def test_dockerfile_installs_face_and_detailer_deps_cpu_only():
     assert not re.search(r"pip3 install[^\n]*\bonnxruntime-gpu\b", text)
 
 
+@pytest.mark.spec("pod.pins-face-deps")
 def test_dockerfile_pins_face_and_detailer_deps_for_reproducible_builds():
     # Security S2: the four named deps are exact-pinned (== , not floating >=/unversioned),
     # and every requirements-file install is constraint-locked to the validated set so a
@@ -87,6 +94,7 @@ def test_dockerfile_pins_face_and_detailer_deps_for_reproducible_builds():
         assert "-c /opt/constraints.txt" in ln, ln
 
 
+@pytest.mark.spec("pod.constraints-fully-pinned")
 def test_constraints_file_pins_every_line_exactly():
     # Every non-comment line is an exact `name==version` pin (no floating specifiers), and
     # no URL/VCS requirement (pip forbids those in a constraints file).
@@ -98,6 +106,7 @@ def test_constraints_file_pins_every_line_exactly():
     assert not any(" @ " in pin for pin in pins), "no URL/VCS requirements in constraints"
 
 
+@pytest.mark.spec("pod.pins-face-deps")
 def test_dockerfile_installs_requests():
     # ComfyUI imports `requests` (app/frontend_management.py) but does NOT declare it
     # in its requirements.txt — the minimal CUDA base lacks it, so ComfyUI crashes at
@@ -105,6 +114,7 @@ def test_dockerfile_installs_requests():
     assert "requests" in DOCKERFILE.read_text()
 
 
+@pytest.mark.spec("pod.start-installs-ssh-key")
 def test_start_installs_ssh_public_key():
     # FROM nvidia/cuda (not a RunPod base image) → start.sh must install RunPod's
     # injected PUBLIC_KEY into authorized_keys itself, or the SSH tunnel can't auth.
@@ -113,12 +123,14 @@ def test_start_installs_ssh_public_key():
     assert "authorized_keys" in text
 
 
+@pytest.mark.spec("pod.launches-via-start")
 def test_dockerfile_launches_via_start_script():
     text = DOCKERFILE.read_text()
     assert "start.sh" in text
     assert 'CMD ["/opt/start.sh"]' in text
 
 
+@pytest.mark.spec("pod.download-idempotent")
 def test_download_is_idempotent_and_fetches_the_v0_2_model_set():
     text = DOWNLOAD.read_text()
     # Exact HF filename — the repo ships fp16/fp32 variants; the bare
@@ -133,6 +145,7 @@ def test_download_is_idempotent_and_fetches_the_v0_2_model_set():
     assert any("face_yolov8m.pt" in ln for ln in url_lines)  # FaceDetailer bbox detector
 
 
+@pytest.mark.spec("pod.download-isolates")
 def test_download_isolates_models_into_their_target_dirs():
     text = DOWNLOAD.read_text()
     # Subfolder-isolated targets (dodge generic-filename collisions like config.json).
@@ -142,6 +155,7 @@ def test_download_isolates_models_into_their_target_dirs():
     assert "ultralytics/bbox" in text  # face_yolov8m.pt
 
 
+@pytest.mark.spec("pod.download-pins-revisions")
 def test_download_pins_immutable_commit_revisions():
     # Supply chain (security S1): every HF `resolve/<ref>/` must pin an IMMUTABLE commit SHA,
     # never the mutable `main` branch — so a moved ref (or a compromised mirror force-moving
@@ -162,6 +176,7 @@ def test_download_pins_immutable_commit_revisions():
         assert re.fullmatch(r"[0-9a-f]{40}", rev), f"*_REV pin is not a 40-hex commit SHA: {rev}"
 
 
+@pytest.mark.spec("pod.download-verifies-sha256")
 def test_download_verifies_sha256_and_aborts_on_mismatch():
     # Security S1: two weights are code-executing pickle (.bin/.pt) loaded via torch.load-style
     # paths, from third-party mirrors. Every download must be SHA-256 verified, and a mismatch
@@ -174,6 +189,7 @@ def test_download_verifies_sha256_and_aborts_on_mismatch():
     assert "717923c19b3f4bbf5250b728f1fa6b2cb72a33aed1d236ea9caf0e21ad943e5f" in text  # yolov8m
 
 
+@pytest.mark.spec("pod.download-verifies-sha256")
 def test_download_records_a_checksum_for_every_fetched_file():
     # Every download call passes a SHA-256 argument (a `_SHA` var, a literal, or the antelope
     # `ANTELOPE_SHAS[i]` array) — no unverified fetch slips through. And every `_SHA` pin is a
@@ -189,6 +205,7 @@ def test_download_records_a_checksum_for_every_fetched_file():
         assert re.fullmatch(r"[0-9a-f]{64}", sha), f"*_SHA pin is not a 64-hex digest: {sha}"
 
 
+@pytest.mark.spec("pod.start-maps-model-dirs")
 def test_start_maps_the_v0_2_model_dirs_into_comfyui():
     # ComfyUI code is in the image, weights on the volume — extra_model_paths must expose
     # the new model folders (controlnet/instantid/ultralytics/insightface), not just checkpoints.
@@ -197,6 +214,7 @@ def test_start_maps_the_v0_2_model_dirs_into_comfyui():
         assert folder in text, folder
 
 
+@pytest.mark.spec("pod.start-maps-model-dirs")
 def test_start_symlinks_hardcoded_model_dirs_to_the_volume():
     # The Impact Subpack (UltralyticsDetectorProvider) and the InstantID node resolve models
     # from ``folder_paths.models_dir/<x>`` directly and IGNORE extra_model_paths.yaml — so the
@@ -209,6 +227,7 @@ def test_start_symlinks_hardcoded_model_dirs_to_the_volume():
         assert re.search(rf"ln -s\S*\s+\S*{folder}\S*\s+\S*models/{folder}", text), folder
 
 
+@pytest.mark.spec("pod.uses-rest-api")
 def test_pod_scripts_use_runpod_rest_api():
     # Both talk to the documented REST base; auth is a bearer token from the env/.env,
     # never a hardcoded secret.
@@ -219,6 +238,7 @@ def test_pod_scripts_use_runpod_rest_api():
         assert "Bearer" in text, script
 
 
+@pytest.mark.spec("pod.up-persists-id")
 def test_up_creates_a_gpu_pod_and_persists_its_id():
     text = UP.read_text()
     # Creates a pod (POST /pods) on a GPU with the models network volume attached, and
@@ -230,6 +250,7 @@ def test_up_creates_a_gpu_pod_and_persists_its_id():
     assert ".pod_id" in text  # id persisted for teardown
 
 
+@pytest.mark.spec("pod.up-enables-ssh")
 def test_up_enables_ssh_tunnel_access():
     text = UP.read_text()
     # These SECURE + network-volume pods have no usable HTTP path (RunPod's Cloudflare
@@ -241,6 +262,7 @@ def test_up_enables_ssh_tunnel_access():
     assert ":localhost:" in text  # forwards the ComfyUI port through the tunnel
 
 
+@pytest.mark.spec("pod.down-deletes")
 def test_down_deletes_the_pod():
     text = DOWN.read_text()
     # Teardown is a DELETE against the recorded pod id — stops per-second billing.
@@ -249,6 +271,7 @@ def test_down_deletes_the_pod():
     assert ".pod_id" in text
 
 
+@pytest.mark.spec("pod.id-file-untracked")
 def test_pod_id_state_file_is_gitignored():
     # The pod-id scratch file is per-run local state, never committed.
     gitignore = (REPO_ROOT / ".gitignore").read_text()

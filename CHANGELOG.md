@@ -33,6 +33,17 @@ files and the annotated tag are one line — they agree, or the release halts.
   at `CLAUDE.md` rather than restating it, and rules carrying only what an author cannot
   derive from that page.
 - **This changelog.**
+- **The living spec tree, backfilled.** `openspec/specs/` now describes what the pipeline
+  already does, in seven capabilities — `portrait-generation`, `face-detectability`,
+  `identity-preserving-generation`, `batch-generation`, `model-selection`, `comfyui-execution`
+  and `gpu-pod-provisioning` — as 29 requirements and 100 scenarios, each carrying a stable
+  `Key:` and the `Layers:` it is proved at. Every scenario is bound to a proving test by a
+  `@pytest.mark.spec(...)` marker (100 keys, 100 bound, none orphaned in either direction);
+  the repository's own structural guards keep `spec_exempt`. This is a description of current
+  functionality, not a change to it: no behaviour changes, no test's meaning changes, and the
+  change itself stays zero-delta rather than claiming to have `ADDED` capabilities that
+  shipped in v0.1 and v0.2. Coverage gaps found while enumerating are recorded in the change's
+  `design.md` rather than written as scenarios no test proves.
 
 ### Changed
 

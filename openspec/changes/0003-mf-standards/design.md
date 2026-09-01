@@ -103,20 +103,24 @@ whose signatures are its contract.
 class) and `D212` (multi-line summary on the first line), matching the existing docstrings, and ignores
 `D203` + `D213` so the gate output is clean rather than merely green.
 
-### D3 — ~~This change declares `skip_specs: true`~~ — SUPERSEDED 2026-09-01, see D12
+### D3 — This change declares `skip_specs: true` — reversed 2026-09-01, restored 2026-09-02
 
-`openspec/specs/` is empty and stays empty. Adopting a method changes no behaviour, and the standard is
-explicit: **never invent a requirement to satisfy the validator.** The mutually-exclusive combination that
-passes is `skip_specs: true` **plus `specs/.gitkeep`** — a non-`.md` file, so the directory stays tracked
+**As built, this decision holds**, though not for the reason it was first written and not with the
+consequence it first had. The change is **zero-delta**: `skip_specs: true` is in `.openspec.yaml`,
+`specs/.gitkeep` is present, and the change's own `specs/` directory is empty. What changed between
+the two dates is *where the backfill lives*, not whether it happens — see D14.
+
+**The original reasoning, which still stands.** Adopting a method changes no behaviour, and the
+standard is explicit: **never invent a requirement to satisfy the validator.** The combination that
+passes is `skip_specs: true` plus `specs/.gitkeep` — a non-`.md` file, so the directory stays tracked
 and no spec file exists. A `specs/README.md` saying "no delta" fails; so does omitting `skip_specs`.
 
-*Alternative weighed:* backfill capability specs for the current pipeline in this change. Rejected on
-size — 120 tests across 7 runtime modules is a change of its own, and bundling it would push this one past
-the "around ten phases" ceiling. It is a named non-goal, deferred to v0.4.
-
-> **Superseded by D12.** The human reversed this on 2026-09-01 and pulled the backfill into this change as
-> phase 7. The text above is kept as written, unedited, because it is the reasoning the change was cut
-> from; D12 records what replaced it and why the size argument was overridden rather than answered.
+**What no longer stands: the deferral.** The original text went on to reject backfilling the pipeline's
+capability specs in this change, on size — 120 tests across 7 runtime modules being a change of its
+own — and named it a non-goal deferred to v0.4. D12 overrode that on 2026-09-01 and pulled the
+backfill in as phase 7. **The backfill happened.** It simply landed in `openspec/specs/` directly
+rather than as a delta under this change, which is why `skip_specs` is correct again: a change that
+*documents* existing behaviour proposes no requirement change, so it has no delta to declare.
 
 ### D4 — Markers are registered and reserved; no binding checker is written
 
@@ -130,6 +134,12 @@ the markers now is free and prevents the one failure that is expensive to discov
 binds nothing because pytest never knew the name). The checker is written when there is a spec tree for it
 to bite on. The standard grades the binding check **advisory**, so this is a supported adoption state, not
 a gap.
+
+**Updated by D12 (2026-09-01).** There now *is* a tree — phase 7 backfills 100 scenarios and binds
+every one of them to a proving test with a `spec` marker, and the structural guards carry
+`spec_exempt`. The condition this decision named as its trigger is therefore met, and the decision
+still stands: the binding exists but nothing enforces it, and the gate array gains no entry. Writing
+the checker is its own decision, for its own change.
 
 ### D5 — The vault link is prose-only, so cutting it is a three-file edit
 
@@ -242,19 +252,125 @@ largest phase in the change by some margin. The standard's own guidance is to sp
 grow one, so 7.1 exists partly to *measure* the backfill — if the capability count makes a single phase
 unreviewable, splitting it into its own change remains the right move and 7.1 is where that becomes visible.
 
-**What it buys.** Without it, `openspec/specs/` ships empty and the release fold this change installs is a
-no-op, so the machinery is adopted but never exercised — the gap named in the risk table below. Phase 7
-closes it: the fold, the `MODIFIED`-replaces-by-title behaviour and the archive ordering all get exercised
-by the first release that uses them, rather than being first tried on a change that also has feature work
-riding on it.
+**What it buys.** Without it, `openspec/specs/` ships empty, so the standard is adopted with nothing in
+the tree it exists to fill — the gap named in the risk table below. Phase 7 closes it: v0.3 ships a living
+spec tree describing what the pipeline actually does, and the next change is cut against a tree that
+already says something.
 
 **What it does not change.** The binding **checker** stays deferred (D4). Phase 7.5 binds each scenario to
 a proving test with a marker and verifies that binding by command, but adds no gate entry — the standard
 grades the checker advisory, and writing one is a separate decision from having a spec tree for it to read.
 
-**The hard constraint phase 7 is built around.** `skip_specs: true` and any file under `specs/` are
-mutually exclusive; each alone fails the validator differently. The flip and the spec files land in one
-commit, which is why 7.2 and 7.3 are written as a pair rather than as sequential steps.
+**Amended 2026-09-02 by D14.** This decision was first built as a *delta* under the change, on the
+reasoning that doing so would also exercise the release fold. The human corrected the placement: a
+backfill describes current functionality, not a change to it, so it belongs in `openspec/specs/`
+directly. The backfill stands; only its location moved, and with it the claim about exercising the
+fold, which D14 retires.
+
+### D13 — The capability map: seven capabilities, enumerated from behaviour and bound to tests
+
+**The measurement, run 2026-09-01.** `uv run pytest --collect-only` reports **132 tests across 13
+files**. Of those, **41** are structural guards of the repository itself — `test_gate_mirrors.py`
+(5), `test_repo_hygiene.py` (4), `test_version_line.py` (3) and `test_infra.py`'s shell-script and
+file-set checks — and the remaining **91** exercise the product. The seven capabilities below were
+enumerated from those tests and from the CLI surface (`--prompt` / `--prompts`, `--identity`,
+`--model`, `--negative`, `--width` / `--height`, `--seed`, `--count`, `--out`, `--server`), **not**
+from `synthetic_portraits/*.py` — which is why `workflow.py` does not appear as a capability (its
+graph tracing is a guarantee *of* `portrait-generation` and `identity-preserving-generation`) and why
+`models.py` does (choosing a model is a decision the caller makes).
+
+| capability | reqs / scenarios | proved by |
+|---|---|---|
+| `portrait-generation` | 7 / 23 | `test_cli.py`, `test_workflow.py`, `test_pipeline.py` |
+| `face-detectability` | 5 / 18 | `test_pipeline.py`, `test_cli.py`, `test_faces.py`, `test_check_face.py` |
+| `identity-preserving-generation` | 3 / 13 | `test_identity.py`, `test_cli.py`, `test_workflow.py`, `test_pipeline.py` |
+| `batch-generation` | 3 / 11 | `test_batch.py`, `test_cli.py` |
+| `model-selection` | 2 / 5 | `test_models.py`, `test_cli.py` |
+| `comfyui-execution` | 4 / 11 | `test_transport.py` |
+| `gpu-pod-provisioning` | 5 / 19 | `test_infra.py` |
+| **total** | **29 / 100** | |
+
+**Every scenario carries a `Key:` and the `Layers:` it is proved at.** Three layer names are used,
+and they are honest about strength rather than uniform: `unit` (a function called directly), `cli`
+(end to end through `main`, against the fake transport and a scripted detector), and `structural`
+(asserted by reading a tracked file — a golden workflow fixture, the `Dockerfile`, a shell script).
+A `structural` scenario proves the artefact *says* the right thing, not that it *did* the right thing
+on a pod; it is labelled so a reader can see which claims rest on that.
+
+**Verified by command, not by eye.** Extracting every `Key:` from `openspec/specs/` and every
+`pytest.mark.spec(...)` argument from `tests/`, sorting both and diffing them, yields no difference:
+100 keys, 100 bound, none orphaned in either direction.
+
+**Gaps — behaviour the code has and the suite does not prove.** Recorded here rather than specified,
+because a scenario no test backs is a requirement this repo has not earned:
+
+- **The server address is configurable** (`--server`, defaulting to `COMFY_URL` and then to
+  localhost). No test constructs the real client from the flag; every test injects a transport, which
+  is exactly what keeps the suite offline. Closing it means asserting the URL a `ComfyClient` is
+  built with.
+- **The output directory defaults to `outputs/`.** Every test passes `--out` at a `tmp_path`, so the
+  default string is unproven. `portrait.saves-render` covers writing to the *requested* directory
+  only.
+- **`--negative` overrides the default negative prompt.** The default's content and its injection are
+  both proved; the CLI flag's override path is not.
+- **The image is photoreal, and of a person who does not exist.** Not provable offline at any layer
+  this suite can reach — it is a property of a GPU render, and the repo's evidence for it is the
+  `examples/` set plus `scripts/check_face.py`.
+
+*Alternative weighed:* write the four missing scenarios and mark them pending. Rejected — a pending
+scenario is a requirement the tree claims and the gate does not hold, which is the failure mode
+`spec_exempt` and this table exist to avoid. They belong in whichever change adds the tests, and
+because the tree is now live (D14), that change will carry them as a real `ADDED` delta.
+
+*Alternative weighed:* leave `gpu-pod-provisioning` out, on the grounds that all 19 of its scenarios
+are `structural`. Rejected — the guarantees are real and externally consequential (a pinned revision,
+a verified digest, a pod that stops billing), and dropping them would leave the repo's most
+security-relevant behaviour undescribed. The `Layers:` label carries the caveat instead.
+
+*Splitting was reconsidered here, as D12 asked.* Seven capabilities and 29 requirements is large for
+one phase but not unreviewable, and the phase adds no behaviour — the diff is prose plus 100
+one-line markers, reviewable capability by capability. It stays one phase.
+
+### D14 — The backfill is seeded directly into `openspec/specs/`, not cut as a delta
+
+**Human decision, 2026-09-02**, correcting how D12's backfill was first built. Phase 7 originally wrote
+the seven capabilities as `## ADDED Requirements` under `openspec/changes/0003-mf-standards/specs/`,
+leaving the change delta-bearing. They now live in `openspec/specs/<capability>/spec.md` as
+`## Requirements`, and the change is zero-delta again (D3).
+
+**Why the delta form was wrong.** A delta is a statement of what a change *changes*. Every one of these
+100 scenarios describes behaviour that shipped in v0.1 or v0.2 and that this change does not touch — so
+`ADDED` was false on its face: nothing was being added by change 0003. Worse, it would have been folded
+into the living tree at release under a heading claiming v0.3 introduced `portrait-generation`, which is
+the sort of drift the whole standard exists to prevent. The living tree is *the description of current
+functionality*; a backfill belongs there directly.
+
+**Why `skip_specs: true` is then correct, not a dodge.** The marker declares that the change proposes no
+spec-level behaviour change. That is precisely true: the pipeline behaves identically before and after,
+and no requirement is added, modified or removed by it. Creating `openspec/specs/` is adoption work, the
+same as creating `CHANGELOG.md` in phase 5 — it documents what is, it does not change it.
+
+**What this costs, stated plainly.** D12 claimed the backfill would exercise the release fold on this
+change's own release. **It no longer does.** `mf-release` will fold an empty delta, so the fold, the
+`MODIFIED`-replaces-by-title behaviour and the archive ordering are all still untried, and will first
+run on whichever change actually changes a requirement — v0.4. That is a genuine loss of one
+rehearsal, accepted knowingly. The counter-argument the human's correction rests on is that the
+rehearsal was never worth buying with a false delta, and that a fold first exercised on a real
+requirement change is a more honest test of it than one exercised on a fabricated one.
+
+*Alternative weighed:* keep the delta **and** hand-write the living tree, so both are populated.
+Rejected — the same 100 scenarios in two places with nothing checking they agree, and `openspec archive`
+would then fold requirements that are already present. The duplication is exactly the drift the
+"one subject, one home" rule forbids.
+
+*Alternative weighed:* run `openspec archive 0003-mf-standards` now, letting the tool do the fold.
+Rejected — archive also moves the change into `changes/archive/`, which is the release station's job on
+a converged change. This one is not converged, and phase 7 is not a release.
+
+**Verification is unchanged in substance, only in path.** The binding check now extracts every `Key:`
+from `openspec/specs/` rather than from the change delta; it still reports 100 keys, 100 bound, none
+orphaned in either direction. `openspec validate --all --strict` now validates eight items — the change
+plus the seven living specs — where before it validated one.
 
 ## Risks / Trade-offs
 
@@ -264,17 +380,19 @@ commit, which is why 7.2 and 7.3 are written as a pair rather than as sequential
 | Adding `D`/`ANN` touches ~34 runtime sites — a docstring can be written that is wrong, or an annotation that is wider than the truth | The 120 tests run unchanged at the phase boundary; a wrong annotation that changes behaviour cannot pass `ty check` + `pytest -q` |
 | `uv sync --locked` will **fail CI** if `uv.lock` is stale relative to `pyproject.toml` — and this change edits `pyproject.toml` in three phases | Re-run `uv lock` in any phase that edits `pyproject.toml`, and commit the lock in that same phase. The failure is loud and immediate, which is why the command is first |
 | Cutting the vault link **removes the only written record of the v0.2 phase workflow** from an agent's reach | `CLAUDE.md` is rewritten (phase 2) before the link is cut (phase 3); the vault files themselves are not deleted, only unreferenced, so nothing is destroyed by cutting the reference. See D11 for what stays uncovered |
-| ~~The empty `openspec/specs/` tree means the release fold is a no-op~~ | **Closed by D12.** Phase 7 backfills the specs, so the fold is exercised by this change's own release rather than deferred to v0.4 |
+| The release fold this change installs is a no-op on this change's own release, so the fold, `MODIFIED`-replaces-by-title and the archive ordering all go untried until v0.4 | **Accepted, not closed** (D14). D12 backfills the specs so `openspec/specs/` ships populated rather than empty — the tree is no longer the gap. The fold is exercised by the first change that actually changes a requirement, which is a more honest test of it than a fabricated delta would have been |
 | The human's requested phase-1 (`CLAUDE.md`) is overridden | Stated openly here and in the hand-back, with the reason. Reversible: if the human insists, `CLAUDE.md` can be written first and amended in phase 2 — at the cost of one commit that documents a nonexistent array |
 
 ## Migration Plan
 
-Six phases, each independently committable and each ending on a green gate. There is nothing to deploy
-and nothing to roll back: every artifact is additive except three prose edits (`CLAUDE.md`,
-`.env.example`, one docstring), and `git revert` of any single phase leaves the repo working.
+Seven phases — six as cut, plus the spec backfill D12 added — each independently committable and each
+ending on a green gate. There is nothing to deploy and nothing to roll back: every artifact is additive
+except three prose edits (`CLAUDE.md`, `.env.example`, one docstring), and `git revert` of any single
+phase leaves the repo working.
 
 **One ordering constraint is load-bearing** (D6): the array is declared before `CLAUDE.md` quotes it.
-Everything after phase 2 is order-independent.
+Everything after phase 2 is order-independent. Phase 7 writes into `openspec/specs/` and leaves this
+change zero-delta (D14), so it imposes no ordering constraint of its own.
 
 The branch is `v0.3_mf_standards`, one branch per version, matching the repo's existing convention
 (`v0.2_harden_and_identity_preserve`). Every commit carries `Change: 0003-mf-standards`.

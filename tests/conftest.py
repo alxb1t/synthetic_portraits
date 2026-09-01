@@ -14,7 +14,7 @@ WORKFLOWS_DIR = REPO_ROOT / "workflows"
 # system, so they have no spec scenario to bind. Declared once here; the guard modules
 # apply it module-wide via `pytestmark`.
 STRUCTURAL_GUARD = pytest.mark.spec_exempt(
-    "structural guard: no scenario to bind until a spec tree exists"
+    "structural guard: asserts a property of the repository, not a behaviour a scenario names"
 )
 
 

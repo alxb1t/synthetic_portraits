@@ -27,6 +27,7 @@ def _positive_id(wf: dict) -> str:
     raise AssertionError("no positive encoder in fixture")
 
 
+@pytest.mark.spec("portrait.prompt-injected")
 def test_inject_sets_prompt_on_the_positive_encoder(txt2img_workflow):
     req = GenerationRequest(prompt="a calm woman, studio portrait")
 
@@ -36,6 +37,7 @@ def test_inject_sets_prompt_on_the_positive_encoder(txt2img_workflow):
     assert result[pos]["inputs"]["text"] == "a calm woman, studio portrait"
 
 
+@pytest.mark.spec("portrait.negative-injected")
 def test_inject_sets_negative_prompt_on_the_negative_encoder(txt2img_workflow):
     req = GenerationRequest(prompt="p", negative="extra fingers, blurry")
 
@@ -48,6 +50,7 @@ def test_inject_sets_negative_prompt_on_the_negative_encoder(txt2img_workflow):
     assert result[neg_link[0]]["inputs"]["text"] == "extra fingers, blurry"
 
 
+@pytest.mark.spec("portrait.dimensions-injected")
 def test_inject_sets_dimensions_on_empty_latent_image(txt2img_workflow):
     req = GenerationRequest(prompt="p", width=768, height=1152)
 
@@ -58,6 +61,7 @@ def test_inject_sets_dimensions_on_empty_latent_image(txt2img_workflow):
     assert latent["inputs"]["height"] == 1152
 
 
+@pytest.mark.spec("portrait.seed-on-every-pass")
 def test_inject_sets_seed_on_ksampler(txt2img_workflow):
     req = GenerationRequest(prompt="p", seed=12345)
 
@@ -67,6 +71,7 @@ def test_inject_sets_seed_on_ksampler(txt2img_workflow):
     assert ksampler["inputs"]["seed"] == 12345
 
 
+@pytest.mark.spec("portrait.injection-does-not-mutate")
 def test_inject_does_not_mutate_the_input_workflow(txt2img_workflow):
     original = copy.deepcopy(txt2img_workflow)
 
@@ -75,6 +80,7 @@ def test_inject_does_not_mutate_the_input_workflow(txt2img_workflow):
     assert txt2img_workflow == original
 
 
+@pytest.mark.spec("portrait.injection-survives-renumbering")
 def test_inject_traces_by_role_not_by_hardcoded_id():
     # Same roles, deliberately unusual ids/order — tracing must still find them.
     wf = {
@@ -113,6 +119,7 @@ def test_inject_traces_by_role_not_by_hardcoded_id():
     assert result["lat"]["inputs"]["width"] == 832
 
 
+@pytest.mark.spec("portrait.injection-rejects-graph-without-sampler")
 def test_inject_raises_when_ksampler_is_missing():
     graph = {"x": {"class_type": "VAEDecode", "inputs": {}}}
     with pytest.raises(WorkflowError, match="KSampler"):
@@ -137,6 +144,7 @@ def _graph_with_load_image() -> dict:
     }
 
 
+@pytest.mark.spec("identity.wire-by-role")
 def test_set_named_inputs_wires_server_name_onto_loadimage_by_role():
     wf = _graph_with_load_image()
 
@@ -145,6 +153,7 @@ def test_set_named_inputs_wires_server_name_onto_loadimage_by_role():
     assert wf["1"]["inputs"]["image"] == "hero_srv.png"
 
 
+@pytest.mark.spec("identity.role-match-case-insensitive")
 def test_set_named_inputs_matches_role_case_insensitively():
     wf = _graph_with_load_image()
 
@@ -153,6 +162,7 @@ def test_set_named_inputs_matches_role_case_insensitively():
     assert wf["1"]["inputs"]["image"] == "hero_srv.png"
 
 
+@pytest.mark.spec("identity.empty-inputs-noop")
 def test_set_named_inputs_empty_map_is_a_noop():
     wf = _graph_with_load_image()
     before = copy.deepcopy(wf)
@@ -162,6 +172,7 @@ def test_set_named_inputs_empty_map_is_a_noop():
     assert wf == before
 
 
+@pytest.mark.spec("identity.unmatched-role-rejected")
 def test_set_named_inputs_raises_when_no_loadimage_matches_the_role():
     wf = _graph_with_load_image()
     with pytest.raises(WorkflowError, match="pose"):
@@ -175,6 +186,7 @@ def _ksamplers(wf: dict) -> list[dict]:
     return [n for n in wf.values() if n["class_type"] == "KSampler"]
 
 
+@pytest.mark.spec("portrait.hires-pass")
 def test_hardened_fixture_has_hires_and_facedetailer_topology(txt2img_workflow):
     classes = {n["class_type"] for n in txt2img_workflow.values()}
     # base txt2img -> latent hi-res (upscale + 2nd sampler) -> FaceDetailer -> save.
@@ -184,6 +196,7 @@ def test_hardened_fixture_has_hires_and_facedetailer_topology(txt2img_workflow):
     assert len(_ksamplers(txt2img_workflow)) == 2  # base + hi-res second pass
 
 
+@pytest.mark.spec("portrait.hires-pass")
 def test_hires_second_ksampler_resamples_the_upscaled_latent(txt2img_workflow):
     # The hi-res KSampler's latent must come (via LatentUpscaleBy) from the base KSampler.
     upscale = next(n for n in txt2img_workflow.values() if n["class_type"] == "LatentUpscaleBy")
@@ -191,12 +204,14 @@ def test_hires_second_ksampler_resamples_the_upscaled_latent(txt2img_workflow):
     assert txt2img_workflow[src_id]["class_type"] == "KSampler"  # fed by the base sampler
 
 
+@pytest.mark.spec("portrait.face-detailer-last")
 def test_facedetailer_is_the_final_image_before_save(txt2img_workflow):
     save = next(n for n in txt2img_workflow.values() if n["class_type"] == "SaveImage")
     feeder_id = save["inputs"]["images"][0]
     assert txt2img_workflow[feeder_id]["class_type"] == "FaceDetailer"
 
 
+@pytest.mark.spec("portrait.seed-on-every-pass")
 def test_inject_sets_seed_on_every_ksampler(txt2img_workflow):
     # Both passes get the seed, so re-seeding in the regenerate loop actually re-rolls the
     # person (base sampler) and stays reproducible (hi-res sampler).
@@ -206,6 +221,7 @@ def test_inject_sets_seed_on_every_ksampler(txt2img_workflow):
     assert seeds == [4242, 4242]
 
 
+@pytest.mark.spec("portrait.dimensions-injected")
 def test_inject_traces_dims_through_the_hires_hop(txt2img_workflow):
     # EmptyLatentImage still gets the dims even though the hi-res sampler sits a
     # LatentUpscaleBy hop away from it — tracing walks upstream, not by id.
@@ -218,6 +234,7 @@ def test_inject_traces_dims_through_the_hires_hop(txt2img_workflow):
 # --- the loosened negative (v0.1 post-ship tweak, carried) ------------------
 
 
+@pytest.mark.spec("portrait.negative-allows-hands")
 def test_default_negative_allows_visible_hands():
     # Upper-body / full-height shots legitimately show hands; the negative must not
     # suppress them (carried from v0.1's post-ship tweak).
@@ -226,6 +243,7 @@ def test_default_negative_allows_visible_hands():
     assert "finger" not in lowered
 
 
+@pytest.mark.spec("portrait.negative-guards-face")
 def test_default_negative_keeps_the_face_guard():
     assert "poorly drawn face" in DEFAULT_NEGATIVE.lower()
 
@@ -233,6 +251,7 @@ def test_default_negative_keeps_the_face_guard():
 # --- role-aware conditioning walk (handles the InstantID two-hop) -----------
 
 
+@pytest.mark.spec("portrait.injection-follows-role-through-passthrough")
 def test_inject_follows_role_through_a_passthrough_conditioning_node():
     # KSampler.positive -> ApplyInstantID (a pass-through carrying BOTH conditionings)
     # -> the positive encoder. The walk must follow the same-named input by role, not

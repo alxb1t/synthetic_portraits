@@ -10,6 +10,8 @@ The same ``inject_txt2img`` handles both the one-hop default and the two-hop ide
 
 from __future__ import annotations
 
+import pytest
+
 from synthetic_portraits.models import IDENTITY_MODEL, get_model
 from synthetic_portraits.workflow import GenerationRequest, inject_txt2img
 
@@ -26,12 +28,14 @@ def _encoder_text(wf: dict, want_title: str) -> str:
 # --- the identity model is registered and uses the shared injector ----------
 
 
+@pytest.mark.spec("identity.shared-injector")
 def test_identity_model_registered_with_the_shared_injector():
     model = get_model(IDENTITY_MODEL)
     assert model.injector is inject_txt2img
     assert model.workflow_path.name == "realvis-txt2img-identity.json"
 
 
+@pytest.mark.spec("identity.graph-has-instantid-legs")
 def test_identity_fixture_has_the_instantid_legs(identity_workflow):
     classes = {n["class_type"] for n in identity_workflow.values()}
     assert "InstantIDModelLoader" in classes
@@ -46,6 +50,7 @@ def test_identity_fixture_has_the_instantid_legs(identity_workflow):
     assert len([n for n in identity_workflow.values() if n["class_type"] == "KSampler"]) == 2
 
 
+@pytest.mark.spec("identity.graph-has-instantid-legs")
 def test_apply_instantid_sits_between_ksampler_and_the_encoders(identity_workflow):
     ksampler = next(
         n
@@ -59,12 +64,14 @@ def test_apply_instantid_sits_between_ksampler_and_the_encoders(identity_workflo
 # --- the two-hop trace lands on the right encoder by role -------------------
 
 
+@pytest.mark.spec("identity.two-hop-positive")
 def test_two_hop_trace_sets_positive_on_the_positive_encoder(identity_workflow):
     result = inject_txt2img(identity_workflow, GenerationRequest(prompt="same person, cafe"))
 
     assert _encoder_text(result, "Positive") == "same person, cafe"
 
 
+@pytest.mark.spec("identity.two-hop-no-leak")
 def test_two_hop_trace_does_not_leak_prompt_into_the_negative_encoder(identity_workflow):
     req = GenerationRequest(prompt="POSITIVE ONLY", negative="NEGATIVE ONLY")
 
@@ -75,6 +82,7 @@ def test_two_hop_trace_does_not_leak_prompt_into_the_negative_encoder(identity_w
     assert _encoder_text(result, "Negative") == "NEGATIVE ONLY"
 
 
+@pytest.mark.spec("identity.two-hop-dims-and-seed")
 def test_two_hop_trace_still_sets_dims_and_seed(identity_workflow):
     result = inject_txt2img(
         identity_workflow, GenerationRequest(prompt="p", width=768, height=1152, seed=99)

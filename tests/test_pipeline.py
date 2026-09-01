@@ -10,6 +10,8 @@ N named inputs by role, wiring each to its `LoadImage` node by title.
 
 from __future__ import annotations
 
+import pytest
+
 from synthetic_portraits import pipeline
 from synthetic_portraits.faces import FakeFaceDetector
 from synthetic_portraits.models import get_model
@@ -30,6 +32,7 @@ def _seeds(fake: FakeComfyClient) -> list[int]:
 # --- the default path does not regress -------------------------------------
 
 
+@pytest.mark.spec("portrait.saves-render")
 def test_run_uploads_zero_inputs_for_prompt_only_and_saves_render(tmp_path):
     fake = FakeComfyClient(view_bytes=b"PNGDATA")
     model = get_model("realvis-txt2img")
@@ -55,6 +58,7 @@ def test_run_uploads_zero_inputs_for_prompt_only_and_saves_render(tmp_path):
     assert outcome.paths[0].parent == tmp_path
 
 
+@pytest.mark.spec("portrait.fetches-every-output")
 def test_run_fetches_every_view_it_is_told_about(tmp_path):
     fake = FakeComfyClient()
     model = get_model("realvis-txt2img")
@@ -67,6 +71,7 @@ def test_run_fetches_every_view_it_is_told_about(tmp_path):
 # --- the regenerate-until-detectable loop ----------------------------------
 
 
+@pytest.mark.spec("faces.accept-one-face")
 def test_accepts_first_render_when_one_face(tmp_path):
     fake = FakeComfyClient()
     model = get_model("realvis-txt2img")
@@ -85,6 +90,7 @@ def test_accepts_first_render_when_one_face(tmp_path):
     assert len(fake.queued_workflows) == 1  # no retries
 
 
+@pytest.mark.spec("faces.reseed-until-one-face")
 def test_reseeds_and_retries_until_one_face(tmp_path):
     fake = FakeComfyClient()
     model = get_model("realvis-txt2img")
@@ -101,6 +107,7 @@ def test_reseeds_and_retries_until_one_face(tmp_path):
     assert _seeds(fake) == [100, 101, 102]
 
 
+@pytest.mark.spec("faces.exhausted-keeps-last")
 def test_exhausts_attempts_keeps_last_render_and_reports_failure(tmp_path):
     fake = FakeComfyClient(view_bytes=b"LAST")
     model = get_model("realvis-txt2img")
@@ -124,6 +131,7 @@ def test_exhausts_attempts_keeps_last_render_and_reports_failure(tmp_path):
     assert outcome.paths[0].read_bytes() == b"LAST"
 
 
+@pytest.mark.spec("faces.default-attempt-budget")
 def test_max_attempts_defaults_to_the_module_constant(tmp_path):
     fake = FakeComfyClient()
     model = get_model("realvis-txt2img")
@@ -180,6 +188,7 @@ _STUB_WITH_LOADIMAGE = {
 }
 
 
+@pytest.mark.spec("identity.wire-by-role")
 def test_uploads_named_input_and_wires_it_to_loadimage_by_role(tmp_path, monkeypatch):
     import json
 
@@ -205,6 +214,7 @@ def test_uploads_named_input_and_wires_it_to_loadimage_by_role(tmp_path, monkeyp
     assert load["inputs"]["image"] == "hero.png"
 
 
+@pytest.mark.spec("identity.upload-once-across-retries")
 def test_named_input_uploaded_once_across_retries(tmp_path):
     import json
 

@@ -28,15 +28,18 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 DOWNLOAD_SH = REPO_ROOT / "download_models.sh"
 
 
+@pytest.mark.spec("faces.substitutable-detector")
 def test_fake_is_a_face_detector():
     assert isinstance(FakeFaceDetector([1]), FaceDetector)
 
 
+@pytest.mark.spec("faces.substitutable-detector")
 def test_fake_returns_scripted_counts_in_sequence():
     det = FakeFaceDetector([0, 2, 1])
     assert [det.count_faces(b"x") for _ in range(3)] == [0, 2, 1]
 
 
+@pytest.mark.spec("faces.substitutable-detector")
 def test_fake_clamps_to_last_count_when_exhausted():
     det = FakeFaceDetector([1])
     assert det.count_faces(b"x") == 1
@@ -44,6 +47,7 @@ def test_fake_clamps_to_last_count_when_exhausted():
     assert det.calls == 2
 
 
+@pytest.mark.spec("faces.import-is-light")
 def test_importing_faces_does_not_import_insightface():
     # The runtime stays stdlib-only until the real detector is constructed; merely
     # importing the module (Protocol + fake) must not pull the heavy optional deps.
@@ -71,6 +75,7 @@ EXPECTED_ANTELOPEV2_FILES = {
 }
 
 
+@pytest.mark.spec("faces.pins-agree-with-pod")
 def test_antelopev2_pins_are_wellformed():
     assert re.fullmatch(r"[0-9a-f]{40}", _ANTELOPEV2_REV)
     assert _ANTELOPEV2_REV in _ANTELOPEV2_BASE
@@ -79,6 +84,7 @@ def test_antelopev2_pins_are_wellformed():
         assert re.fullmatch(r"[0-9a-f]{64}", digest)
 
 
+@pytest.mark.spec("faces.pins-agree-with-pod")
 def test_antelopev2_pins_match_download_models_sh():
     # Single source of truth: the host stager must use the exact rev + digests the pod
     # download script already pins (S1), so the two can never drift to different bytes.
@@ -106,6 +112,7 @@ class _FakeFetch:
         dest.write_bytes(self._payloads[Path(url).name])
 
 
+@pytest.mark.spec("faces.pack-verified")
 def test_ensure_antelopev2_downloads_and_verifies(tmp_path):
     payloads = {name: name.encode() for name in EXPECTED_ANTELOPEV2_FILES}
     digests = {name: hashlib.sha256(b).hexdigest() for name, b in payloads.items()}
@@ -120,6 +127,7 @@ def test_ensure_antelopev2_downloads_and_verifies(tmp_path):
     assert len(fetch.calls) == len(EXPECTED_ANTELOPEV2_FILES)
 
 
+@pytest.mark.spec("faces.pack-idempotent")
 def test_ensure_antelopev2_is_idempotent(tmp_path):
     payloads = {name: name.encode() for name in EXPECTED_ANTELOPEV2_FILES}
     digests = {name: hashlib.sha256(b).hexdigest() for name, b in payloads.items()}
@@ -132,6 +140,7 @@ def test_ensure_antelopev2_is_idempotent(tmp_path):
     ensure_antelopev2(tmp_path, fetch=boom, digests=digests, base_url="http://x")
 
 
+@pytest.mark.spec("faces.pack-mismatch-aborts")
 def test_ensure_antelopev2_aborts_on_checksum_mismatch(tmp_path):
     payloads = {name: name.encode() for name in EXPECTED_ANTELOPEV2_FILES}
     # Expected digest for one file is wrong → a tampered/corrupt fetch must abort, unverified.
