@@ -71,11 +71,13 @@ class FakeFaceDetector:
     the last value (so an over-budget loop keeps failing/succeeding as written, never raising).
     """
 
-    def __init__(self, counts: Sequence[int]):
+    def __init__(self, counts: Sequence[int]) -> None:
+        """Script the per-attempt face counts this fake detector will return, in order."""
         self._counts = list(counts)
         self.calls = 0
 
     def count_faces(self, image: bytes) -> int:
+        """Return the next scripted count, clamping to the last once the script runs out."""
         index = self.calls
         self.calls += 1
         if not self._counts:
@@ -92,7 +94,8 @@ class AntelopeV2FaceDetector:
     insightface/cv2 — the runtime stays stdlib-only until the detector is constructed.
     """
 
-    def __init__(self, *, det_size: tuple[int, int] = (640, 640)):
+    def __init__(self, *, det_size: tuple[int, int] = (640, 640)) -> None:
+        """Stage the pinned antelopev2 pack and build the CPU detector at ``det_size``."""
         import cv2  # ty: ignore[unresolved-import]
         import numpy as np  # ty: ignore[unresolved-import]
         from insightface.app import FaceAnalysis  # ty: ignore[unresolved-import]
@@ -105,6 +108,7 @@ class AntelopeV2FaceDetector:
         self._np = np
 
     def count_faces(self, image: bytes) -> int:
+        """Decode encoded image bytes and return how many faces antelopev2 detects."""
         buffer = self._np.frombuffer(image, dtype=self._np.uint8)
         decoded = self._cv2.imdecode(buffer, self._cv2.IMREAD_COLOR)
         if decoded is None:
@@ -138,8 +142,10 @@ def ensure_antelopev2(
     digests: Mapping[str, str] = _ANTELOPEV2_SHA256,
     base_url: str = _ANTELOPEV2_BASE,
 ) -> Path:
-    """Stage the pinned + SHA-256-verified antelopev2 pack so the dev-host face gate never
-    lets insightface auto-download it unpinned + unverified (security S3).
+    """Stage the pinned, SHA-256-verified antelopev2 pack into the insightface model root.
+
+    This is what keeps the dev-host face gate from letting insightface auto-download the
+    pack unpinned and unverified (security S3).
 
     Idempotent: a file already present with the expected digest is left in place. Each file
     is fetched to a ``.partial`` and verified **before** it lands under its real name, so a

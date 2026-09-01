@@ -12,7 +12,7 @@ Until phase 1 lands there is no `make gate`; run the five commands directly. Fro
 
 ## Progress
 
-- [ ] 1 — The declared gate: `minions.toml`, `Makefile`, CI, lint selectors
+- [x] 1 — The declared gate: `minions.toml`, `Makefile`, CI, lint selectors
 - [ ] 2 — `CLAUDE.md`: rewritten to the template
 - [ ] 3 — Cut the vault coupling, and guard it with a test
 - [ ] 4 — `openspec/config.yaml`: the authoring context
@@ -27,31 +27,32 @@ The single source of truth for "done", plus two of its four mirrors (`Makefile`,
 commit** so a reviewer can diff them side by side (design D1, and the drift risk). `CLAUDE.md` mirrors it
 in phase 2 and `README.md` in phase 6.
 
-- [ ] 1.1 Write `.minions/minions.toml` with the ordered `gate` array — `uv sync --locked`,
+- [x] 1.1 Write `.minions/minions.toml` with the ordered `gate` array — `uv sync --locked`,
       `ruff format --check .`, `ruff check .`, `ty check`, `pytest -q`. Verify:
       `uv run python -c "import tomllib,pathlib;print(tomllib.loads(pathlib.Path('.minions/minions.toml').read_text())['gate'])"`
       prints exactly those five, in that order.
-- [ ] 1.2 Add `.minions/*` then `!.minions/minions.toml` to `.gitignore`. Verify **on file paths, not the
+- [x] 1.2 Add `.minions/*` then `!.minions/minions.toml` to `.gitignore`. Verify **on file paths, not the
       directory** — `git check-ignore -q .minions/findings/x_review.md` exits 0 **and**
       `git check-ignore -q .minions/minions.toml` exits 1.
-- [ ] 1.3 Add a `Makefile` with a `gate` target mirroring the array command-for-command, each prefixed
+- [x] 1.3 Add a `Makefile` with a `gate` target mirroring the array command-for-command, each prefixed
       `uv run` where the array names a tool. Verify: `make gate` exits 0, and the target's commands read
       in the same order as `minions.toml`.
-- [ ] 1.4 Add `.python-version` pinning one interpreter consistent with `requires-python = ">=3.11"`.
+- [x] 1.4 Add `.python-version` pinning one interpreter consistent with `requires-python = ">=3.11"`.
       Verify: `uv run python -V` reports that version.
-- [ ] 1.5 In `pyproject.toml`: add `D` and `ANN` to `[tool.ruff.lint] select`; add a `per-file-ignores`
+- [x] 1.5 In `pyproject.toml`: add `D` and `ANN` to `[tool.ruff.lint] select`; add a `per-file-ignores`
       entry scoping `D1*`, `D401` and `ANN*` out of `tests/**`; ignore `D203` and `D213` (design D2's two
       incompatible pairs); register `markers = ["spec", "spec_exempt"]` under
       `[tool.pytest.ini_options]`. Verify: `uv run pytest --markers` lists both markers, and
       `uv run ruff check .` emits **no `warning:` line** (a merely-green run with warnings does not pass
       this task).
-- [ ] 1.6 Fix the **34** measured `D`/`ANN` violations in `synthetic_portraits/` (30) and `scripts/` (4)
+- [x] 1.6 Fix the **34** measured `D`/`ANN` violations in `synthetic_portraits/` (30) and `scripts/` (4)
       — real docstrings and honest annotations, no blanket `# noqa`. Verify: `uv run ruff check .` exits
-      0 and `uv run pytest -q` still reports **114 passed**.
-- [ ] 1.7 Rewrite `.github/workflows/ci.yml` as one step per array command, in array order —
+      0 and `uv run pytest -q` still reports **120 passed** (corrected from 114 during phase 1:
+      the original figure counted `def test_` and missed parametrization).
+- [x] 1.7 Rewrite `.github/workflows/ci.yml` as one step per array command, in array order —
       `uv sync` becomes `uv sync --locked`, and `ruff format --check .` is added. Verify: the workflow's
       `run:` lines, read top to bottom, equal the array.
-- [ ] 1.8 Refresh `uv.lock` and commit it in this phase — the tracked lock currently records
+- [x] 1.8 Refresh `uv.lock` and commit it in this phase — the tracked lock currently records
       `version = "0.1.0"` against a `pyproject` of `0.2.0`, so `uv sync --locked` **fails on the tree as
       it stands** (measured 2026-09-01). Verify: `uv sync --locked` exits 0.
 
@@ -130,7 +131,7 @@ Test-first: 3.1 is written red, before the edits that make it green.
       `Makefile`, `ci.yml`, `README.md` and `CLAUDE.md`. Verify: all five files carry the same commands in
       the same order.
 - [ ] 6.3 Run the whole gate and the validator, and report the output rather than summarizing it. Verify:
-      `make gate` exits 0 with **115 passed** (114 + the one guard test from phase 3), and
+      `make gate` exits 0 with **at least 121 passed** (120 + the guard test(s) from phase 3), and
       `openspec validate --all --strict` exits 0.
 - [ ] 6.4 Confirm every commit of this change carries its trailer. Verify:
       `git log --grep "Change: 0003-mf-standards" --oneline | wc -l` equals the number of phase commits,

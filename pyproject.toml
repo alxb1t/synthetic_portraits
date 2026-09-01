@@ -32,13 +32,29 @@ package = false
 pythonpath = [".", "scripts"]
 testpaths = ["tests"]
 addopts = "-q"
+# Registered so a marker can never be silently ignored. Reserved for the spec-to-test
+# binding: no checker exists yet, and none is in the gate array (change 0003 design D4).
+markers = [
+    "spec: binds this test to a spec scenario Key, as `spec(\"<cap>:<req>:<scenario>\")`",
+    "spec_exempt: structural test with no scenario to bind, as `spec_exempt(\"<reason>\")`",
+]
 
 [tool.ruff]
 target-version = "py311"
 line-length = 100
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "SIM"]
+select = ["E", "F", "I", "UP", "B", "SIM", "D", "ANN"]
+# D203/D211 and D212/D213 are mutually exclusive pairs — ruff warns on every run unless
+# one of each is disabled. This repo's docstrings are D211 (no blank line before a class)
+# and D212 (multi-line summary starting on the first line).
+ignore = ["D203", "D213"]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests are named as behavioural sentences and double as documentation, so a docstring
+# restating the name is redundant and `-> None` on a test function catches no defect.
+# Measured 2026-09-01: D+ANN costs 34 violations across runtime code and 311 in tests.
+"tests/**" = ["D1", "D401", "ANN"]
 
 [tool.ty.environment]
 python-version = "3.11"

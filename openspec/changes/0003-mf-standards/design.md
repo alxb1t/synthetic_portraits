@@ -5,7 +5,7 @@ See `proposal.md` — Why. The constraints that shape the approach, all measured
 
 | measured | value |
 |---|---|
-| tests, all offline and passing | 114 across 10 files |
+| tests, all offline and passing | **120 collected** across 10 files (114 `def test_` plus parametrization) |
 | `ruff format --check .` today | clean — 23 files already formatted |
 | `ruff check .` today (`E,F,I,UP,B,SIM`) | clean |
 | adding `D,ANN`: `synthetic_portraits/` | **30** violations |
@@ -111,7 +111,7 @@ passes is `skip_specs: true` **plus `specs/.gitkeep`** — a non-`.md` file, so 
 and no spec file exists. A `specs/README.md` saying "no delta" fails; so does omitting `skip_specs`.
 
 *Alternative weighed:* backfill capability specs for the current pipeline in this change. Rejected on
-size — 114 tests across 7 runtime modules is a change of its own, and bundling it would push this one past
+size — 120 tests across 7 runtime modules is a change of its own, and bundling it would push this one past
 the "around ten phases" ceiling. It is a named non-goal, deferred to v0.4.
 
 ### D4 — Markers are registered and reserved; no binding checker is written
@@ -233,7 +233,7 @@ that does not exist. Task 2.5 verifies it.
 | risk | mitigation |
 |---|---|
 | **Four places restate the gate array** (`minions.toml`, `Makefile`, `ci.yml`, `README.md`) and **nothing checks that they agree.** A drifted mirror documents a gate the repo does not run | They land in **one commit** (phase 1), so they are diffable side by side at review. `CLAUDE.md` adds a fifth in phase 2, carrying the "change one, change all" instruction beside it |
-| Adding `D`/`ANN` touches ~34 runtime sites — a docstring can be written that is wrong, or an annotation that is wider than the truth | The 114 tests run unchanged at the phase boundary; a wrong annotation that changes behaviour cannot pass `ty check` + `pytest -q` |
+| Adding `D`/`ANN` touches ~34 runtime sites — a docstring can be written that is wrong, or an annotation that is wider than the truth | The 120 tests run unchanged at the phase boundary; a wrong annotation that changes behaviour cannot pass `ty check` + `pytest -q` |
 | `uv sync --locked` will **fail CI** if `uv.lock` is stale relative to `pyproject.toml` — and this change edits `pyproject.toml` in three phases | Re-run `uv lock` in any phase that edits `pyproject.toml`, and commit the lock in that same phase. The failure is loud and immediate, which is why the command is first |
 | Cutting the vault link **removes the only written record of the v0.2 phase workflow** from an agent's reach | `CLAUDE.md` is rewritten (phase 2) before the link is cut (phase 3); the vault files themselves are not deleted, only unreferenced, so nothing is destroyed by cutting the reference. See D11 for what stays uncovered |
 | The empty `openspec/specs/` tree means the release fold is a **no-op**, so this change never exercises the machinery it installs | Accepted and named. The fold is first exercised by v0.4. `openspec validate --all --strict` still runs green over an empty tree plus a `skip_specs` change, which is the check available now |

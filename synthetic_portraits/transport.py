@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import time
 import uuid
+from collections.abc import Callable
 from typing import Any, Protocol, runtime_checkable
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
@@ -76,7 +77,7 @@ def await_outputs(
     *,
     max_polls: int = 300,
     interval: float = 1.0,
-    sleep: Any = time.sleep,
+    sleep: Callable[[float], None] = time.sleep,
 ) -> dict[str, Any]:
     """Poll ``/history`` until ``prompt_id`` completes; return its ``outputs`` bucket.
 
@@ -109,12 +110,16 @@ def _describe_error(status: dict[str, Any], prompt_id: str) -> str:
 class ComfyClient:
     """HTTP transport to a ComfyUI server over stdlib ``urllib``."""
 
-    def __init__(self, base_url: str, *, client_id: str | None = None, timeout: float = 60.0):
+    def __init__(
+        self, base_url: str, *, client_id: str | None = None, timeout: float = 60.0
+    ) -> None:
+        """Point the client at a ComfyUI ``base_url``, minting a client id if none is given."""
         self.base_url = base_url.rstrip("/")
         self.client_id = client_id or uuid.uuid4().hex
         self.timeout = timeout
 
     def upload_image(self, filename: str, data: bytes) -> str:
+        """POST an image to ``/upload/image``; return the name ComfyUI stored it under."""
         content_type, body = _encode_multipart(filename, data)
         req = Request(
             f"{self.base_url}/upload/image",
@@ -125,6 +130,7 @@ class ComfyClient:
         return self._json(req).get("name", filename)
 
     def queue_prompt(self, workflow: dict[str, Any]) -> str:
+        """POST a workflow graph to ``/prompt``; return the queued ``prompt_id``."""
         payload = json.dumps({"prompt": workflow, "client_id": self.client_id}).encode()
         req = Request(
             f"{self.base_url}/prompt",
@@ -139,10 +145,12 @@ class ComfyClient:
         return prompt_id
 
     def get_history(self, prompt_id: str) -> dict[str, Any]:
+        """Fetch ``/history/<prompt_id>``; empty while the prompt is still pending."""
         req = Request(f"{self.base_url}/history/{prompt_id}", method="GET")
         return self._json(req)
 
     def get_image(self, filename: str, subfolder: str, folder_type: str) -> bytes:
+        """Fetch one rendered image's raw bytes from ``/view``."""
         query = urlencode({"filename": filename, "subfolder": subfolder, "type": folder_type})
         req = Request(f"{self.base_url}/view?{query}", method="GET")
         return self._bytes(req)
@@ -225,7 +233,12 @@ class FakeComfyClient:
         view_bytes: bytes = _ONE_PX_PNG,
         queue_error: str | None = None,
         execution_error: str | None = None,
-    ):
+    ) -> None:
+        """Script the fake server: how many polls stay pending, what outputs to return.
+
+        ``queue_error`` rejects at queue time and ``execution_error`` fails during
+        execution, so both error paths of :func:`await_outputs` are reachable offline.
+        """
         self.polls_until_done = polls_until_done
         self.outputs = _DEFAULT_OUTPUTS if outputs is None else outputs
         self.view_bytes = view_bytes
@@ -238,16 +251,19 @@ class FakeComfyClient:
         self.poll_count = 0
 
     def upload_image(self, filename: str, data: bytes) -> str:
+        """Record the upload and echo the filename back, as ComfyUI would."""
         self.uploads.append((filename, data))
         return filename
 
     def queue_prompt(self, workflow: dict[str, Any]) -> str:
+        """Record the workflow and mint a synthetic ``prompt_id``, or raise if scripted to."""
         if self.queue_error is not None:
             raise ComfyExecutionError(self.queue_error)
         self.queued_workflows.append(workflow)
         return f"fake-prompt-{len(self.queued_workflows):04d}"
 
     def get_history(self, prompt_id: str) -> dict[str, Any]:
+        """Return pending until ``polls_until_done`` is reached, then success or an error."""
         self.poll_count += 1
         if self.poll_count < self.polls_until_done:
             return {}  # still pending
@@ -266,5 +282,6 @@ class FakeComfyClient:
         }
 
     def get_image(self, filename: str, subfolder: str, folder_type: str) -> bytes:
+        """Record the view request and return the canned PNG bytes."""
         self.requested_views.append((filename, subfolder, folder_type))
         return self.view_bytes

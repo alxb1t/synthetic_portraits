@@ -1,0 +1,22 @@
+# The quality gate — the one source of truth for "done" in this repository.
+#
+# Four files mirror this array command-for-command: `Makefile`'s `gate` target,
+# `.github/workflows/ci.yml`, `README.md` and `CLAUDE.md`. Nothing checks that they
+# agree, and a drifted mirror documents a gate this repo does not run.
+# Change one, change all four.
+#
+# Order is load-bearing: lock-sync leads, so every later command certifies what
+# `uv.lock` pins rather than whatever `.venv` happens to hold.
+#
+# `docker build --check` is deliberately NOT here — it needs a running Docker daemon,
+# and the array must be runnable on any checkout, offline. `.github/workflows/build-image.yml`
+# performs a real build on every push to `main`, which subsumes the lint. See the change
+# `0003-mf-standards` design.md D1.
+
+gate = [
+    "uv sync --locked",
+    "ruff format --check .",
+    "ruff check .",
+    "ty check",
+    "pytest -q",
+]

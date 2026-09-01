@@ -25,8 +25,10 @@ Detector = Callable[[Path], int]
 
 
 def _antelopev2_detector() -> Detector:
-    """Build the real insightface/antelopev2 detector (CPU). Imported lazily so the
-    gate and tests never need insightface installed."""
+    """Build the real insightface/antelopev2 detector, on CPU.
+
+    Imported lazily so the gate and the tests never need insightface installed.
+    """
     import cv2  # ty: ignore[unresolved-import]
     from insightface.app import FaceAnalysis  # ty: ignore[unresolved-import]
 
@@ -54,6 +56,7 @@ def check_image(path: str | Path, *, detector: Detector) -> tuple[bool, int]:
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """Build the argument parser for the offline face-detectability check."""
     parser = argparse.ArgumentParser(
         prog="check_face.py",
         description="Assert every image has exactly one antelopev2-detectable frontal face.",
@@ -63,6 +66,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None, *, detector: Detector | None = None) -> int:
+    """Check every given image for exactly one face; return a process exit code.
+
+    Returns 0 when every image passes, 1 when any image does not, and 2 when no image
+    was given. ``detector`` is injected by the tests; it defaults to the real antelopev2
+    detector, which is built lazily so importing this module stays dependency-free.
+    """
     args = build_parser().parse_args(argv)
     if not args.images:
         print("no images given", flush=True)

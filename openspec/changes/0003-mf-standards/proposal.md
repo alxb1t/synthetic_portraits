@@ -65,7 +65,7 @@ selectors, registered `spec` / `spec_exempt` markers, version → `0.3.0`).
 the new selectors — **34 violations, measured 2026-09-01**. No behavioural change, no signature change,
 no new runtime dependency. The stdlib-only guardrail and the sanctioned `faces` extra are untouched.
 
-**Tests:** unchanged in behaviour. The suite stays offline and deterministic; all 114 tests keep passing
+**Tests:** unchanged in behaviour. The suite stays offline and deterministic; all 120 tests keep passing
 at every phase boundary.
 
 **Dependencies:** none added. The OpenSpec CLI is operator tooling resolved on `PATH`

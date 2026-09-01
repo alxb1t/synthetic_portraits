@@ -33,6 +33,7 @@ DEFAULT_SERVER = os.environ.get("COMFY_URL", "http://127.0.0.1:8188")
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """Build the argument parser for the ``generate.py`` command line."""
     parser = argparse.ArgumentParser(
         prog="generate.py",
         description="Generate a photoreal upper-body image of a person who does not exist.",
@@ -80,6 +81,12 @@ def main(
     transport: ComfyTransport | None = None,
     detector: FaceDetector | None = None,
 ) -> int:
+    """Run one generation request from parsed arguments; return a process exit code.
+
+    ``transport`` and ``detector`` are the two injected seams: the tests pass fakes, so no
+    test reaches a GPU or the network. Left as ``None`` they resolve to the real ComfyUI
+    client and the real antelopev2 detector.
+    """
     parser = build_parser()
     args = parser.parse_args(argv)
 
