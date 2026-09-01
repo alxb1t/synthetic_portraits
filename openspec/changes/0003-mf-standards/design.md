@@ -103,7 +103,7 @@ whose signatures are its contract.
 class) and `D212` (multi-line summary on the first line), matching the existing docstrings, and ignores
 `D203` + `D213` so the gate output is clean rather than merely green.
 
-### D3 — This change declares `skip_specs: true`; the living specs are backfilled later
+### D3 — ~~This change declares `skip_specs: true`~~ — SUPERSEDED 2026-09-01, see D12
 
 `openspec/specs/` is empty and stays empty. Adopting a method changes no behaviour, and the standard is
 explicit: **never invent a requirement to satisfy the validator.** The mutually-exclusive combination that
@@ -113,6 +113,10 @@ and no spec file exists. A `specs/README.md` saying "no delta" fails; so does om
 *Alternative weighed:* backfill capability specs for the current pipeline in this change. Rejected on
 size — 120 tests across 7 runtime modules is a change of its own, and bundling it would push this one past
 the "around ten phases" ceiling. It is a named non-goal, deferred to v0.4.
+
+> **Superseded by D12.** The human reversed this on 2026-09-01 and pulled the backfill into this change as
+> phase 7. The text above is kept as written, unedited, because it is the reasoning the change was cut
+> from; D12 records what replaced it and why the size argument was overridden rather than answered.
 
 ### D4 — Markers are registered and reserved; no binding checker is written
 
@@ -228,6 +232,30 @@ them. That is the gap the deferred change closes, and it is the reason it should
 change no longer creates one — the standard's filling table is explicit that no directory may be listed
 that does not exist. Task 2.5 verifies it.
 
+### D12 — The specs are backfilled in this change after all, as phase 7
+
+**Human decision, 2026-09-01, reversing D3.** The living specs are written now rather than at v0.4.
+
+**What the reversal costs, stated plainly.** D3's size argument was not refuted, it was overridden: the
+behaviour to describe is unchanged at 132 tests across seven runtime modules, and phase 7 is therefore the
+largest phase in the change by some margin. The standard's own guidance is to split a bundle rather than
+grow one, so 7.1 exists partly to *measure* the backfill — if the capability count makes a single phase
+unreviewable, splitting it into its own change remains the right move and 7.1 is where that becomes visible.
+
+**What it buys.** Without it, `openspec/specs/` ships empty and the release fold this change installs is a
+no-op, so the machinery is adopted but never exercised — the gap named in the risk table below. Phase 7
+closes it: the fold, the `MODIFIED`-replaces-by-title behaviour and the archive ordering all get exercised
+by the first release that uses them, rather than being first tried on a change that also has feature work
+riding on it.
+
+**What it does not change.** The binding **checker** stays deferred (D4). Phase 7.5 binds each scenario to
+a proving test with a marker and verifies that binding by command, but adds no gate entry — the standard
+grades the checker advisory, and writing one is a separate decision from having a spec tree for it to read.
+
+**The hard constraint phase 7 is built around.** `skip_specs: true` and any file under `specs/` are
+mutually exclusive; each alone fails the validator differently. The flip and the spec files land in one
+commit, which is why 7.2 and 7.3 are written as a pair rather than as sequential steps.
+
 ## Risks / Trade-offs
 
 | risk | mitigation |
@@ -236,7 +264,7 @@ that does not exist. Task 2.5 verifies it.
 | Adding `D`/`ANN` touches ~34 runtime sites — a docstring can be written that is wrong, or an annotation that is wider than the truth | The 120 tests run unchanged at the phase boundary; a wrong annotation that changes behaviour cannot pass `ty check` + `pytest -q` |
 | `uv sync --locked` will **fail CI** if `uv.lock` is stale relative to `pyproject.toml` — and this change edits `pyproject.toml` in three phases | Re-run `uv lock` in any phase that edits `pyproject.toml`, and commit the lock in that same phase. The failure is loud and immediate, which is why the command is first |
 | Cutting the vault link **removes the only written record of the v0.2 phase workflow** from an agent's reach | `CLAUDE.md` is rewritten (phase 2) before the link is cut (phase 3); the vault files themselves are not deleted, only unreferenced, so nothing is destroyed by cutting the reference. See D11 for what stays uncovered |
-| The empty `openspec/specs/` tree means the release fold is a **no-op**, so this change never exercises the machinery it installs | Accepted and named. The fold is first exercised by v0.4. `openspec validate --all --strict` still runs green over an empty tree plus a `skip_specs` change, which is the check available now |
+| ~~The empty `openspec/specs/` tree means the release fold is a no-op~~ | **Closed by D12.** Phase 7 backfills the specs, so the fold is exercised by this change's own release rather than deferred to v0.4 |
 | The human's requested phase-1 (`CLAUDE.md`) is overridden | Stated openly here and in the hand-back, with the reason. Reversible: if the human insists, `CLAUDE.md` can be written first and amended in phase 2 — at the cost of one commit that documents a nonexistent array |
 
 ## Migration Plan
