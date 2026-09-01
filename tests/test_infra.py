@@ -2,7 +2,8 @@
 
 Locks the conventions the plan calls out — the cu128 pin (Blackwell/sm_120), the model
 download set, and shell-script syntax — as executable checks. No Docker build or network
-here; ``docker build --check`` runs in the gate.
+here; ``docker build --check`` is deliberately outside the gate array (it needs a running
+Docker daemon) — ``.github/workflows/build-image.yml`` builds the image for real on push.
 """
 
 from __future__ import annotations

@@ -24,7 +24,11 @@ files and the annotated tag are one line — they agree, or the release halts.
   operator's home directory, this repository's own absolute root, or any reference to the
   external private notes directory the plan of record used to live in.
 - **`tests/test_version_line.py`** — asserts the package's `__version__` and
-  `pyproject.toml` agree, so the version line cannot silently drift again.
+  `pyproject.toml` agree, so the version line cannot silently drift again, and that every
+  annotated tag has a changelog section (the tag list is derived from git, not hand-kept).
+- **`tests/test_gate_mirrors.py`** — asserts the `Makefile`, `ci.yml`, `README.md` and
+  `CLAUDE.md` restatements of the gate all equal the declared array, turning
+  "change one, change all four" from an instruction into an enforced invariant.
 - **The OpenSpec tree** (`openspec/`), with an authoring `config.yaml` whose context points
   at `CLAUDE.md` rather than restating it, and rules carrying only what an author cannot
   derive from that page.

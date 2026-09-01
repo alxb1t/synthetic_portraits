@@ -105,15 +105,17 @@ make gate
 It runs the five commands declared in `.minions/minions.toml`'s `gate` array, in order:
 
 ```bash
-uv sync --locked         # the environment: certifies what uv.lock pins
-uv run ruff format --check .   # format
-uv run ruff check .            # lint
-uv run ty check                # types
-uv run pytest -q               # tests, offline and deterministic
+uv sync --locked
+uv run ruff format --check .
+uv run ruff check .
+uv run ty check
+uv run pytest -q
 ```
 
-That array is the single source of truth. `Makefile`, `.github/workflows/ci.yml`, this
-section and `CLAUDE.md` mirror it — change one, change all four. `docker build --check` is
+They cover, in order: the environment (certifying what `uv.lock` pins), format, lint, types
+and the test suite. That array is the single source of truth — `Makefile`,
+`.github/workflows/ci.yml`, this section and `CLAUDE.md` mirror it, and
+`tests/test_gate_mirrors.py` fails if any of them drifts. `docker build --check` is
 deliberately outside the array (it needs a running Docker daemon); the image is built for
 real by `.github/workflows/build-image.yml` on every push to `main`.
 

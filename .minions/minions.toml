@@ -8,6 +8,10 @@
 # Order is load-bearing: lock-sync leads, so every later command certifies what
 # `uv.lock` pins rather than whatever `.venv` happens to hold.
 #
+# Commands are stored in EXECUTABLE form — exactly as a shell runs them. Mirrors are then
+# byte-for-byte comparisons rather than a comparison plus an unwritten "prepend uv run"
+# rule, and `tests/test_gate_mirrors.py` enforces the agreement.
+#
 # `docker build --check` is deliberately NOT here — it needs a running Docker daemon,
 # and the array must be runnable on any checkout, offline. `.github/workflows/build-image.yml`
 # performs a real build on every push to `main`, which subsumes the lint. See the change
@@ -15,8 +19,8 @@
 
 gate = [
     "uv sync --locked",
-    "ruff format --check .",
-    "ruff check .",
-    "ty check",
-    "pytest -q",
+    "uv run ruff format --check .",
+    "uv run ruff check .",
+    "uv run ty check",
+    "uv run pytest -q",
 ]

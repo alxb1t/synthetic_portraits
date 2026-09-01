@@ -20,13 +20,13 @@ package is **stdlib-only**, and **no test reaches a GPU or the network**.
 **These** are the commands this repo declares, in `.minions/minions.toml`'s `gate` array, in order:
 
 - `uv sync --locked` — the environment; certifies what `uv.lock` pins, not whatever `.venv` holds
-- `ruff format --check .` — format, in check mode (a formatter in *rewrite* mode is not this check)
-- `ruff check .` — lint (`E,F,I,UP,B,SIM,D,ANN`; `tests/**` is exempt from `D1`/`D401`/`ANN`)
-- `ty check` — strict types
-- `pytest -q` — the suite, offline and deterministic
+- `uv run ruff format --check .` — format, in check mode (a formatter in *rewrite* mode is not it)
+- `uv run ruff check .` — lint (`E,F,I,UP,B,SIM,D,ANN`; `tests/**` exempt from `D1`/`D401`/`ANN`)
+- `uv run ty check` — strict types
+- `uv run pytest -q` — the suite, offline and deterministic
 
-`Makefile`'s `gate` target, `README.md` and CI (`.github/workflows/ci.yml`) mirror that array; the array is
-the one that is run. **Change one, change all four.** `make gate` is the one command a human types.
+`Makefile`'s `gate` target, `README.md` and CI mirror that array, and `tests/test_gate_mirrors.py` fails
+if any of them drifts from it. `make gate` is the one command a human types.
 
 **`docker build --check` is deliberately *not* in the array** — it needs a running Docker daemon, and the
 array must run on any checkout, offline. `build-image.yml` does a real image build on every push to

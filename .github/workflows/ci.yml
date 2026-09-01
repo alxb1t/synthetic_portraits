@@ -18,22 +18,18 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v5
 
-      # 1 — environment. Certifies what uv.lock pins, not whatever the runner resolves.
+      # Certifies what uv.lock pins, not whatever the runner resolves.
       - name: Sync the locked environment
         run: uv sync --locked
 
-      # 2 — format
       - name: Format (ruff)
         run: uv run ruff format --check .
 
-      # 3 — lint
       - name: Lint (ruff)
         run: uv run ruff check .
 
-      # 4 — types
       - name: Type-check (ty)
         run: uv run ty check
 
-      # 5 — tests
       - name: Test (pytest)
         run: uv run pytest -q
