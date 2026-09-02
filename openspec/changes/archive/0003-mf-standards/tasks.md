@@ -1,0 +1,197 @@
+# Tasks — 0003-mf-standards
+
+Seven phases. Each is independently committable, ends on a **green gate**, a `CHANGELOG` entry (from
+phase 5 onward, when the file exists), a ticked `## Progress` box and **one** commit whose message ends
+with a `Change: 0003-mf-standards` trailer contiguous with any `Co-Authored-By:` line.
+
+`design.md` is authoritative for *how*; it is not re-derived here. **The order of phases 1→2 is
+load-bearing** (design D6): the gate array is declared before `CLAUDE.md` quotes it.
+
+Until phase 1 lands there is no `make gate`; run the five commands directly. From phase 1 onward,
+**the gate is `make gate`, run and never summarized.**
+
+## Progress
+
+- [x] 1 — The declared gate: `minions.toml`, `Makefile`, CI, lint selectors
+- [x] 2 — `CLAUDE.md`: rewritten to the template
+- [x] 3 — Cut the vault coupling, and guard it with a test
+- [x] 4 — `openspec/config.yaml`: the authoring context
+- [x] 5 — `CHANGELOG.md` and the version line
+- [x] 6 — `README.md`, and the whole-change verification
+- [x] 7 — Backfill the specs to represent the current functionality
+
+---
+
+## 1. The declared gate
+
+The single source of truth for "done", plus two of its four mirrors (`Makefile`, `ci.yml`), in **one
+commit** so a reviewer can diff them side by side (design D1, and the drift risk). `CLAUDE.md` mirrors it
+in phase 2 and `README.md` in phase 6.
+
+- [x] 1.1 Write `.minions/minions.toml` with the ordered `gate` array — `uv sync --locked`,
+      `ruff format --check .`, `ruff check .`, `ty check`, `pytest -q`. Verify:
+      `uv run python -c "import tomllib,pathlib;print(tomllib.loads(pathlib.Path('.minions/minions.toml').read_text())['gate'])"`
+      prints exactly those five, in that order.
+- [x] 1.2 Add `.minions/*` then `!.minions/minions.toml` to `.gitignore`. Verify **on file paths, not the
+      directory** — `git check-ignore -q .minions/findings/x_review.md` exits 0 **and**
+      `git check-ignore -q .minions/minions.toml` exits 1.
+- [x] 1.3 Add a `Makefile` with a `gate` target mirroring the array command-for-command, each prefixed
+      `uv run` where the array names a tool. Verify: `make gate` exits 0, and the target's commands read
+      in the same order as `minions.toml`.
+- [x] 1.4 Add `.python-version` pinning one interpreter consistent with `requires-python = ">=3.11"`.
+      Verify: `uv run python -V` reports that version.
+- [x] 1.5 In `pyproject.toml`: add `D` and `ANN` to `[tool.ruff.lint] select`; add a `per-file-ignores`
+      entry scoping `D1*`, `D401` and `ANN*` out of `tests/**`; ignore `D203` and `D213` (design D2's two
+      incompatible pairs); register `markers = ["spec", "spec_exempt"]` under
+      `[tool.pytest.ini_options]`. Verify: `uv run pytest --markers` lists both markers, and
+      `uv run ruff check .` emits **no `warning:` line** (a merely-green run with warnings does not pass
+      this task).
+- [x] 1.6 Fix the **34** measured `D`/`ANN` violations in `synthetic_portraits/` (30) and `scripts/` (4)
+      — real docstrings and honest annotations, no blanket `# noqa`. Verify: `uv run ruff check .` exits
+      0 and `uv run pytest -q` still reports **120 passed** (corrected from 114 during phase 1:
+      the original figure counted `def test_` and missed parametrization).
+- [x] 1.7 Rewrite `.github/workflows/ci.yml` as one step per array command, in array order —
+      `uv sync` becomes `uv sync --locked`, and `ruff format --check .` is added. Verify: the workflow's
+      `run:` lines, read top to bottom, equal the array.
+- [x] 1.8 Refresh `uv.lock` and commit it in this phase — the tracked lock currently records
+      `version = "0.1.0"` against a `pyproject` of `0.2.0`, so `uv sync --locked` **fails on the tree as
+      it stands** (measured 2026-09-01). Verify: `uv sync --locked` exits 0.
+
+## 2. `CLAUDE.md` — rewritten to the template
+
+Second, not first, and deliberately so — design D6. It quotes the array from phase 1; written earlier it
+would document a gate no file declares. This repo writes **no `docs/sdd.md`** (design D10), so this file
+carries the change-cutting facts and points at the tools for the rest.
+
+- [x] 2.1 Rewrite `CLAUDE.md` whole from the template: the one-paragraph what-it-is, the gate **quoted
+      from the array**, the seams, the engineering conventions, `## How a change is cut here` (scaffold →
+      author → validate, with the OpenSpec version and the `Change:` trailer rule), the guardrails, and
+      the layout. Verify: no unfilled template placeholder remains **in prose** —
+      `sed 's/`[^`]*`//g' CLAUDE.md | grep -c '<[a-z-]\+>'` is 0 — and `wc -l CLAUDE.md` is **≤ 120**
+      (target ~100). The check strips code spans first: angle brackets inside backticks are command
+      metasyntax (`openspec new change <NNNN-slug>`), which the CLAUDE.md template itself ships, so the
+      unstripped grep this task originally specified could never pass. Corrected during phase 2.
+- [x] 2.2 Point at the tools for the method rather than restating it (design D10): `openspec instructions
+      <artifact>` owns artifact structure, and the `mf-build` / `mf-converge` / `mf-release` /
+      `mf-backlog-export` skills own the build, check, converge and release loop. Name them; do **not**
+      restate the loop, the findings contract or the release fold. Verify: `CLAUDE.md` names all four
+      skills and contains no restatement of the findings contract.
+- [x] 2.3 In the gate section, record why `docker build --check` is **not** in the array (design D1), so
+      its absence reads as a decision rather than an oversight. Verify:
+      `grep -c 'docker build --check' CLAUDE.md` is at least 1.
+- [x] 2.4 Remove the "plan lives in a private vault" section and every method restatement, leaving facts
+      only — no numbered "first do X" ritual. Verify: `grep -ci 'vault\|implementation_plan' CLAUDE.md`
+      is 0.
+- [x] 2.5 Confirm every directory named in the layout section exists — this change creates **no**
+      `docs/` tree (deferred), so the layout must not name one — and that the five gate lines match
+      `.minions/minions.toml`. Verify: each path in the layout resolves on disk; the gate lines diff
+      clean against the array.
+- [x] 2.6 Do **not** create `AGENTS.md` (design D7 — edit whichever exists, never write both). Verify:
+      `test ! -e AGENTS.md`.
+
+## 3. Cut the vault coupling, and guard it with a test
+
+Test-first: 3.1 is written red, before the edits that make it green.
+
+- [x] 3.1 Add `tests/test_repo_hygiene.py` asserting that no tracked file (excluding `.env`, which is
+      gitignored) contains `VAULT_PROJECT_DIR`, an absolute `/Users/` path, or any other real absolute
+      path from the host. Enumerate via `git ls-files`, so the assertion covers the tracked set rather
+      than a hand-listed one. Verify: the test **fails** on the current tree naming the known sites, then
+      passes after 3.2–3.3.
+- [x] 3.2 Remove `VAULT_PROJECT_DIR` from `.env.example`, leaving it path-free and declaring shape only.
+      Verify: `grep -c VAULT .env.example` is 0, and the remaining keys carry no value from this machine.
+- [x] 3.3 Remove the vault reference from `synthetic_portraits/__init__.py`'s module docstring. Verify:
+      `grep -rin vault -- $(git ls-files ':!openspec/*')` returns nothing.
+- [x] 3.4 Confirm the repo resolves no path outside itself. Verify: `test_repo_hygiene.py` passes and the
+      full gate is green.
+
+## 4. `openspec/config.yaml` — the authoring context
+
+- [x] 4.1 Fill `context:` as a **pointer** — `CLAUDE.md` for this repo's facts and its change-cutting
+      section, not restated, the page winning where they disagree. Verify: the block contains no copy of
+      the gate array and no restatement of the loop.
+- [x] 4.2 Fill `rules:` for `proposal`, `specs`, `design` and `tasks` with only what an author cannot
+      derive from `CLAUDE.md` — including the `skip_specs` + `.gitkeep` pairing, one `spec.md` per
+      capability directory, "never invent a requirement", "record the measurement behind each decision",
+      and the phase/`## Progress` task format this repo's builder parses. Verify:
+      `openspec validate --all --strict` exits 0.
+
+## 5. `CHANGELOG.md` and the version line
+
+- [x] 5.1 Create `CHANGELOG.md` in Keep a Changelog + SemVer form, backfilling `## [0.2.0]` and
+      `## [0.1.0]` from the existing annotated tags, and opening `## [Unreleased]` with one entry per
+      phase already built (1–4). Verify: both released sections exist with their tag dates, and
+      `## [Unreleased]` names phases 1–4.
+- [x] 5.2 Bump `pyproject.toml` `version` `0.2.0` → `0.3.0` (design D8) and refresh `uv.lock`. Verify:
+      the version file, `proposal.md`'s `version: v0.3` and the `## [Unreleased]` heading-to-be all agree;
+      `uv sync --locked` exits 0. The **tag is not created here** — `mf-release` cuts it.
+
+## 6. `README.md`, and the whole-change verification
+
+- [x] 6.1 Add a gate section to `README.md` stating `make gate` and the five commands in array order, and
+      refresh "current status" to v0.3. Verify: the five commands appear in order, and no stale v0.2
+      status line remains.
+- [x] 6.2 Diff the array against its four mirrors by eye — `.minions/minions.toml` (the source) against
+      `Makefile`, `ci.yml`, `README.md` and `CLAUDE.md`. Verify: all five files carry the same commands in
+      the same order.
+- [x] 6.3 Run the whole gate and the validator, and report the output rather than summarizing it. Verify:
+      `make gate` exits 0 with **at least 121 passed** (120 + the guard test(s) from phase 3), and
+      `openspec validate --all --strict` exits 0.
+- [x] 6.4 Confirm every commit of this change carries its trailer. Verify:
+      `git log --grep "Change: 0003-mf-standards" --oneline | wc -l` equals the number of phase commits,
+      and `git log -1 --format=%B` shows the trailer contiguous with `Co-Authored-By:`.
+
+## 7. Backfill the specs to represent the current functionality
+
+**A reversal of design D3, decided by the human on 2026-09-01.** D3 declared this change
+zero-delta (`skip_specs: true`) and deferred the backfill to v0.4 on grounds of size — 132 tests
+across seven runtime modules. That reasoning is unchanged and still worth knowing: this phase is
+large enough that it may warrant splitting once 7.1 has measured it. D3 and the proposal's
+non-goal are updated by 7.4 rather than left contradicting this list.
+
+**Where the specs go — corrected by the human on 2026-09-02 (design D14).** 7.2 and 7.3 were first
+written to cut the backfill as an `## ADDED Requirements` delta under this change, which would have
+made it delta-bearing. That was wrong: a delta states what a change *changes*, and every one of these
+scenarios describes behaviour that shipped in v0.1 or v0.2. The backfill is written **directly into
+the living tree**, `openspec/specs/<capability>/spec.md`, as `## Requirements` — and this change
+therefore stays **zero-delta** (`skip_specs: true` + `specs/.gitkeep`), because documenting existing
+behaviour proposes no requirement change. The two tasks below are restated to match.
+
+Specs describe **what the system already does** — this phase adds no behaviour and changes no test's
+meaning. A requirement that no existing test proves is a requirement this repo has not earned;
+record it as a gap in `design.md` rather than writing a scenario the code does not satisfy.
+
+- [x] 7.1 Enumerate the capabilities from the behaviour that already exists, working from the test
+      suite and the CLI surface (`--prompt`/`--prompts`, `--identity`, `--model`, `--negative`,
+      `--width`/`--height`, `--seed`, `--count`, `--out`, `--server`) rather than from the module
+      layout — capabilities are behavioural, not a mirror of `synthetic_portraits/*.py`. Record the
+      list and the test files backing each in `design.md`. Verify: every capability names at least
+      one existing test that proves it, and no capability is listed for behaviour the suite does not
+      cover.
+- [x] 7.2 Write one `openspec/specs/<capability>/spec.md` per capability **in the living tree**, as
+      `## Purpose` + `## Requirements`, each `### Requirement:` carrying `#### Scenario:` blocks with
+      a stable `Key:` and the `Layers:` it is proved at. One `spec.md` per capability **directory** —
+      a `spec.md` at the root of `specs/` is malformed. Verify: `openspec validate --all --strict`
+      exits 0 and reports one `spec/<capability>` item per capability.
+- [x] 7.3 Leave this change **zero-delta**: `skip_specs: true` in `.openspec.yaml` and
+      `specs/.gitkeep` present, with its own `specs/` holding no `.md` file. The two are mutually
+      exclusive — `skip_specs` with spec files fails with *"skip_specs is set but spec files exist"*,
+      and omitting it on an empty `specs/` fails with *"Change must have at least one delta."*
+      Verify: `grep -c skip_specs openspec/changes/0003-mf-standards/.openspec.yaml` is 1, the
+      `.gitkeep` is tracked, and `find openspec/changes/0003-mf-standards/specs -name '*.md'` is
+      empty.
+- [x] 7.4 Reconcile the artifacts this phase reverses: enumerate the seven capabilities in
+      `proposal.md` under a `New Capabilities` section that still declares **no delta**, delete the
+      now-obsolete "Backfilling `openspec/specs/`" non-goal, and rewrite `design.md` D3 to record
+      both the 2026-09-01 reversal and the 2026-09-02 correction that restored `skip_specs`
+      (D14). Verify: `grep -c "Backfilling .openspec/specs/." proposal.md` is 0, and the proposal's
+      capability list names all seven directories present under `openspec/specs/`.
+- [x] 7.5 Bind every scenario to a proving test — `@pytest.mark.spec("<key>")` on at least one test
+      per `Key:`. Structural guards keep `spec_exempt`. Verify: every `Key:` value in
+      `openspec/specs/` appears in at least one `pytest.mark.spec` marker under `tests/`, and no
+      marker names a `Key:` the tree does not carry — checked by a command whose exit code decides
+      it — and the full gate stays green. The binding **checker** stays deferred
+      (design D4) — this task proves the binding exists, it does not add a gate entry.
+- [x] 7.6 Append the phase's `CHANGELOG` entry, run the whole gate and the validator, and report
+      their output rather than summarizing it. Verify: `make gate` exits 0 and
+      `openspec validate --all --strict` exits 0.

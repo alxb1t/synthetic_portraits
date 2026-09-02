@@ -135,8 +135,8 @@ def _find_all_by_class(workflow: Workflow, class_type: str) -> list[dict[str, An
     return nodes
 
 
-def _is_link(value: Any) -> bool:
-    """A node input is a link when it is ``[node_id: str, output_index: int]``."""
+def _is_link(value: object) -> bool:
+    """Report whether a node input is a link, i.e. ``[node_id: str, output_index: int]``."""
     return (
         isinstance(value, (list, tuple))
         and len(value) == 2
@@ -145,7 +145,7 @@ def _is_link(value: Any) -> bool:
     )
 
 
-def _resolve_conditioning(workflow: Workflow, link: Any, role: str) -> str:
+def _resolve_conditioning(workflow: Workflow, link: object, role: str) -> str:
     """Walk from ``link`` to the ``CLIPTextEncode`` for ``role`` (``positive``/``negative``).
 
     One traversal handles both hop counts: the default graph links a ``KSampler`` straight to
@@ -175,7 +175,7 @@ def _resolve_conditioning(workflow: Workflow, link: Any, role: str) -> str:
     raise WorkflowError(f"could not trace a {role} CLIPTextEncode from {link!r}")
 
 
-def _resolve_upstream(workflow: Workflow, link: Any, class_type: str) -> str:
+def _resolve_upstream(workflow: Workflow, link: object, class_type: str) -> str:
     """Walk upstream from ``link`` to the first node of ``class_type``; return its id."""
     seen: set[str] = set()
     stack: list[Any] = [link]

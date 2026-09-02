@@ -1,12 +1,16 @@
 name: CI
 
+# One step per command in the `gate` array declared in `.minions/minions.toml`, in the
+# same order. That array is the source of truth; this file is one of its four mirrors
+# (Makefile · ci.yml · README.md · CLAUDE.md). Change one, change all four.
+
 on:
   push:
   pull_request:
 
 jobs:
   gate:
-    name: ruff + ty + pytest
+    name: gate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -14,14 +18,18 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v5
 
-      - name: Sync dev environment
-        run: uv sync
+      # Certifies what uv.lock pins, not whatever the runner resolves.
+      - name: Sync the locked environment
+        run: uv sync --locked
+
+      - name: Format (ruff)
+        run: uv run ruff format --check .
 
       - name: Lint (ruff)
-        run: uv run ruff check
+        run: uv run ruff check .
 
       - name: Type-check (ty)
         run: uv run ty check
 
       - name: Test (pytest)
-        run: uv run pytest
+        run: uv run pytest -q

@@ -33,6 +33,8 @@ DEFAULT_MAX_ATTEMPTS = 5
 
 @dataclass(frozen=True)
 class RenderedImage:
+    """One image returned by a render: its ComfyUI filename and its raw bytes."""
+
     filename: str
     data: bytes
 
@@ -124,7 +126,7 @@ def run(
 
 
 def _check(detector: FaceDetector, images: list[RenderedImage]) -> tuple[bool, int]:
-    """A render is accepted iff it produced exactly one image with exactly one face."""
+    """Accept a render iff it produced exactly one image holding exactly one face."""
     if len(images) != 1:
         return False, 0
     faces = detector.count_faces(images[0].data)

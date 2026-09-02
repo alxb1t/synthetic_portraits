@@ -30,6 +30,7 @@ NO_SLEEP = lambda _seconds: None  # noqa: E731
 # --- Protocol conformance ---------------------------------------------------
 
 
+@pytest.mark.spec("comfy.seam-is-substitutable")
 def test_fake_and_real_clients_satisfy_the_transport_protocol():
     assert isinstance(FakeComfyClient(), ComfyTransport)
     assert isinstance(ComfyClient("http://localhost:8188"), ComfyTransport)
@@ -38,6 +39,7 @@ def test_fake_and_real_clients_satisfy_the_transport_protocol():
 # --- FakeComfyClient records the full call sequence -------------------------
 
 
+@pytest.mark.spec("comfy.fake-replays-state-machine")
 def test_fake_client_records_upload_queue_and_view(txt2img_workflow):
     fake = FakeComfyClient()
 
@@ -55,6 +57,7 @@ def test_fake_client_records_upload_queue_and_view(txt2img_workflow):
 # --- The poll state machine (await_outputs) ---------------------------------
 
 
+@pytest.mark.spec("comfy.polls-until-done")
 def test_await_outputs_polls_until_history_is_populated():
     # Pending for two polls, then the outputs appear on the third.
     fake = FakeComfyClient(polls_until_done=3)
@@ -66,6 +69,7 @@ def test_await_outputs_polls_until_history_is_populated():
     assert outputs["9"]["images"][0]["filename"].endswith(".png")
 
 
+@pytest.mark.spec("comfy.returns-immediately-when-done")
 def test_await_outputs_returns_immediately_when_already_done():
     fake = FakeComfyClient(polls_until_done=1)
 
@@ -75,6 +79,7 @@ def test_await_outputs_returns_immediately_when_already_done():
     assert outputs
 
 
+@pytest.mark.spec("comfy.execution-error-surfaced")
 def test_await_outputs_raises_on_server_execution_error():
     fake = FakeComfyClient(polls_until_done=1, execution_error="KSampler: OOM")
 
@@ -82,6 +87,7 @@ def test_await_outputs_raises_on_server_execution_error():
         await_outputs(fake, "fake-prompt", interval=0, sleep=NO_SLEEP)
 
 
+@pytest.mark.spec("comfy.timeout")
 def test_await_outputs_times_out_when_never_completing():
     # Completion would need 99 polls; we cap at 3.
     fake = FakeComfyClient(polls_until_done=99)
@@ -92,6 +98,7 @@ def test_await_outputs_times_out_when_never_completing():
     assert fake.poll_count == 3
 
 
+@pytest.mark.spec("comfy.queue-rejection-is-an-error")
 def test_queue_prompt_error_is_surfaced_by_the_fake():
     fake = FakeComfyClient(queue_error="invalid prompt: node 6 missing input")
 
@@ -114,6 +121,7 @@ def _stub_urlopen(monkeypatch, handler):
     )
 
 
+@pytest.mark.spec("comfy.queue-posts-and-returns-id")
 def test_comfy_client_queue_prompt_posts_prompt_and_returns_id(monkeypatch, txt2img_workflow):
     captured = {}
 
@@ -133,6 +141,7 @@ def test_comfy_client_queue_prompt_posts_prompt_and_returns_id(monkeypatch, txt2
     assert captured["body"]["client_id"] == "cid-1"
 
 
+@pytest.mark.spec("comfy.queue-rejection-is-an-error")
 def test_comfy_client_queue_prompt_raises_on_http_validation_error(monkeypatch, txt2img_workflow):
     def handler(req):
         raise HTTPError(
@@ -150,6 +159,7 @@ def test_comfy_client_queue_prompt_raises_on_http_validation_error(monkeypatch, 
         client.queue_prompt(txt2img_workflow)
 
 
+@pytest.mark.spec("comfy.history-parsed")
 def test_comfy_client_get_history_parses_json(monkeypatch):
     payload = {"srv-123": {"outputs": {"9": {"images": []}}, "status": {"status_str": "success"}}}
     _stub_urlopen(monkeypatch, lambda req: json.dumps(payload).encode())
@@ -158,6 +168,7 @@ def test_comfy_client_get_history_parses_json(monkeypatch):
     assert client.get_history("srv-123") == payload
 
 
+@pytest.mark.spec("comfy.view-returns-bytes")
 def test_comfy_client_get_image_returns_raw_bytes(monkeypatch):
     captured = {}
 
@@ -176,6 +187,7 @@ def test_comfy_client_get_image_returns_raw_bytes(monkeypatch):
     assert "type=output" in captured["url"]
 
 
+@pytest.mark.spec("comfy.upload-multipart")
 def test_comfy_client_upload_image_sends_multipart(monkeypatch):
     captured = {}
 

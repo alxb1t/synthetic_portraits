@@ -71,6 +71,7 @@ SELECTABLE_MODELS: tuple[str, ...] = tuple(
 
 
 def get_model(name: str) -> Model:
+    """Look up a model by registry name, or raise :class:`UnknownModelError`."""
     try:
         return MODELS[name]
     except KeyError:

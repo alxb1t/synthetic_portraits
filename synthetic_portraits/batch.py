@@ -31,6 +31,6 @@ def read_prompts(path: str | Path) -> list[str]:
 
 
 def slugify(text: str, *, max_len: int = 30) -> str:
-    """A filesystem-safe, stable slug for a prompt (lowercase, ``_``-joined, truncated)."""
+    """Return a filesystem-safe, stable slug for a prompt (lowercase, ``_``-joined)."""
     slug = _SLUG_UNSAFE.sub("_", text.lower()).strip("_")[:max_len].strip("_")
     return slug or "prompt"

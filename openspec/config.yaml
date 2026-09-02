@@ -1,0 +1,38 @@
+schema: spec-driven
+
+# Shown to whichever agent authors an artifact. Keep this a POINTER, never a restatement —
+# a copy of the method here is a copy that drifts.
+context: |
+  What is true of this repository — its quality gate, its seams, its conventions, its
+  layout, and how a change is cut here — is stated once in `CLAUDE.md`. Read it before
+  authoring any artifact. It is not restated here; where an instruction below and that
+  page disagree, the page wins.
+
+  This repo keeps no separate method page. `openspec instructions` owns artifact
+  structure, and the `mf-*` skills own the build, check, converge and release stations.
+
+  The runtime package is stdlib-only and no test reaches a GPU or the network. An
+  artifact that assumes otherwise is proposing a dependency, which is human-gated.
+
+# Only what an author cannot derive from `CLAUDE.md` or from the instructions themselves.
+rules:
+  proposal:
+    - "A change is always four artifacts — `proposal.md`, `specs/`, `design.md`, `tasks.md`. Missing one is malformed, not half-built."
+    - "Open with `version: vX.Y` frontmatter. The CLI neither emits nor checks it; it is on the author, and it must match the CHANGELOG entry, the version files and the tag."
+    - "A change that changes no requirement sets `skip_specs: true` in its `.openspec.yaml` and keeps `specs/.gitkeep`. The two are mutually exclusive with any spec file under `specs/`."
+    - "State non-goals that draw a real boundary, and name any deviation from the repo standard as a deviation rather than letting it read as an oversight."
+  specs:
+    - "One `spec.md` per capability directory — `specs/<capability>/spec.md`. A `spec.md` at the root of `specs/` is a malformed change."
+    - "Every scenario carries a stable `Key:` and the `Layers:` it is proved at."
+    - "Never invent a requirement to produce a delta. Declaring the absence is the correct move when behaviour does not change."
+  design:
+    - "Sketch the seams the work will be tested at, and name them. Prefer an existing seam over a new one, and take the highest seam that gives the coverage. This repo's seams are named in `CLAUDE.md`."
+    - "Name the actual files the approach touches."
+    - "Record the MEASUREMENT behind each decision, not only the decision — a count you ran, a command's output, a file you read. This file is the record the change was cut from, and a claim about a set written without re-measuring the set is this project's most frequent defect."
+    - "Weigh at least one simpler alternative per decision, and say why it was rejected."
+    - "Resolve open questions before the tasks are written. A question that would change the specs, the approach or the task breakdown is asked of the human, not deferred."
+  tasks:
+    - "Phases, not a flat list — around ten at most, each independently committable and each ending on a green gate."
+    - "Open with a `## Progress` list of one line per phase, `- [ ] N — Title`. This repo's builder parses that list and nothing else to find where the work stands."
+    - "Put `N.M` sub-tasks inside per-phase `## N. Title` sections, below the Progress list."
+    - "Every sub-task states how its completion is verified: a command whose exit code decides it, or an observable fact on disk. A verification that cannot be run is a halt, not a task."

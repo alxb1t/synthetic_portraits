@@ -1,4 +1,4 @@
-# Secrets & local config — never commit (holds VAULT_PROJECT_DIR + RunPod key, etc.)
+# Secrets & local config — never commit (the RunPod API key and volume ids).
 .env
 
 # Rendered scratch output (the curated demo set lives in examples/)
@@ -6,6 +6,11 @@ outputs/
 
 # Per-run pod state written by infra/up.sh, read by infra/down.sh
 infra/.pod_id
+
+# Run artefacts: findings, frozen diffs, the deferred-work file. The declared gate
+# array is the one tracked file in here.
+.minions/*
+!.minions/minions.toml
 
 # macOS
 .DS_Store

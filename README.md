@@ -4,10 +4,13 @@ A self-hosted, headless pipeline: **text prompt → photoreal upper-body image o
 who does not exist** — face, torso, arms, hands, and clothes — using open SDXL models
 (**RealVisXL V5.0**) via **ComfyUI** on an on-demand **RunPod** GPU.
 
+**Status:** **v0.3.0** is the latest release — a declared quality gate, the in-repo change
+method under `openspec/`, and a living spec tree backfilled to current functionality.
+See [`CHANGELOG.md`](CHANGELOG.md).
+
 One prompt → one person; another prompt → another person. Clothing and pose are driven from
-the prompt; hands are shown by default (SDXL hand quality varies — sharpening it is a v0.2
-item). Every image is framed as **upper-body** so it always contains one large, clear,
-frontal face.
+the prompt; hands are shown by default. Every image is framed to contain one large, clear,
+frontal face — including at full height, via the hi-res pass and FaceDetailer added in v0.2.
 
 > ## ⚠️ AI-generated people — not real individuals
 >
@@ -88,14 +91,36 @@ exactly one antelopev2-detectable frontal face.
 ## Development
 
 Runtime code is **zero third-party dependency** (stdlib only). The dev toolchain is managed
-with uv; the ComfyUI transport is fully mocked in tests, so **no test touches a GPU**.
+with uv; the ComfyUI transport and the face detector are both faked in tests, so **no test
+touches a GPU or the network**.
+
+### The quality gate
+
+A unit of work is done when the gate is green — run, never summarized. One command:
 
 ```bash
-uv sync            # create the dev environment
-uv run pytest      # tests (ComfyUI transport fully mocked — no GPU)
-uv run ruff check  # lint
-uv run ty check    # type-check
+make gate
 ```
+
+It runs the five commands declared in `.minions/minions.toml`'s `gate` array, in order:
+
+```bash
+uv sync --locked
+uv run ruff format --check .
+uv run ruff check .
+uv run ty check
+uv run pytest -q
+```
+
+They cover, in order: the environment (certifying what `uv.lock` pins), format, lint, types
+and the test suite. That array is the single source of truth — `Makefile`,
+`.github/workflows/ci.yml`, this section and `CLAUDE.md` mirror it, and
+`tests/test_gate_mirrors.py` fails if any of them drifts. `docker build --check` is
+deliberately outside the array (it needs a running Docker daemon); the image is built for
+real by `.github/workflows/build-image.yml` on every push to `main`.
+
+Work is defined before it is built, as a change under `openspec/changes/`. See
+[`CLAUDE.md`](CLAUDE.md) for how a change is cut here.
 
 ## Licensing
 

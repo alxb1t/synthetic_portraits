@@ -11,6 +11,7 @@ from synthetic_portraits.transport import FakeComfyClient
 _ACCEPT = FakeFaceDetector([1])  # every render passes the face check on the first attempt
 
 
+@pytest.mark.spec("portrait.help-exits-zero")
 def test_cli_help_exits_cleanly(capsys):
     with pytest.raises(SystemExit) as exc:
         cli.main(["--help"])
@@ -18,12 +19,14 @@ def test_cli_help_exits_cleanly(capsys):
     assert "prompt" in capsys.readouterr().out.lower()
 
 
+@pytest.mark.spec("portrait.entry-point")
 def test_generate_entry_point_delegates_to_cli_main():
     import generate
 
     assert generate.main is cli.main
 
 
+@pytest.mark.spec("portrait.no-prompt-prints-help")
 def test_no_prompt_prints_help_and_returns_zero(capsys):
     assert cli.main([]) == 0
     assert "prompt" in capsys.readouterr().out.lower()
@@ -38,6 +41,7 @@ def _queued_positive_text(fake: FakeComfyClient) -> str:
     return node["inputs"]["text"]
 
 
+@pytest.mark.spec("portrait.prompt-and-seed-queued")
 def test_main_threads_prompt_and_seed_through_to_the_queued_workflow(tmp_path):
     fake = FakeComfyClient()
 
@@ -53,6 +57,7 @@ def test_main_threads_prompt_and_seed_through_to_the_queued_workflow(tmp_path):
     assert ksampler["inputs"]["seed"] == 7
 
 
+@pytest.mark.spec("portrait.default-dimensions")
 def test_main_defaults_to_portrait_832x1216(tmp_path):
     fake = FakeComfyClient()
 
@@ -64,6 +69,7 @@ def test_main_defaults_to_portrait_832x1216(tmp_path):
     assert (latent["inputs"]["width"], latent["inputs"]["height"]) == (832, 1216)
 
 
+@pytest.mark.spec("portrait.dimension-overrides")
 def test_main_honours_width_height_overrides(tmp_path):
     fake = FakeComfyClient()
 
@@ -79,6 +85,7 @@ def test_main_honours_width_height_overrides(tmp_path):
     assert (latent["inputs"]["width"], latent["inputs"]["height"]) == (768, 1152)
 
 
+@pytest.mark.spec("portrait.count-consecutive-seeds")
 def test_main_count_renders_n_images_with_consecutive_seeds(tmp_path):
     fake = FakeComfyClient()
 
@@ -97,12 +104,14 @@ def test_main_count_renders_n_images_with_consecutive_seeds(tmp_path):
     assert seeds == [10, 11, 12]  # reproducible: seed, seed+1, seed+2
 
 
+@pytest.mark.spec("portrait.count-defaults-to-one")
 def test_main_defaults_to_a_single_image(tmp_path):
     fake = FakeComfyClient()
     cli.main(["--prompt", "p", "--out", str(tmp_path)], transport=fake, detector=_ACCEPT)
     assert len(fake.queued_workflows) == 1
 
 
+@pytest.mark.spec("models.unknown-rejected")
 def test_main_rejects_unknown_model(tmp_path):
     argv = ["--prompt", "p", "--model", "nope", "--out", str(tmp_path)]
     with pytest.raises(SystemExit) as exc:
@@ -110,6 +119,7 @@ def test_main_rejects_unknown_model(tmp_path):
     assert exc.value.code != 0
 
 
+@pytest.mark.spec("models.identity-graph-off-menu")
 def test_main_rejects_selecting_the_internal_identity_graph_by_name(tmp_path):
     # The identity graph is auto-selected by --identity (a hero image), never chosen by name:
     # picking it without a hero queues a graph whose LoadImage still holds a placeholder, which
@@ -122,6 +132,7 @@ def test_main_rejects_selecting_the_internal_identity_graph_by_name(tmp_path):
     assert exc.value.code != 0
 
 
+@pytest.mark.spec("faces.cli-reports-failure")
 def test_main_returns_nonzero_and_summarizes_when_a_face_check_fails(tmp_path, capsys):
     fake = FakeComfyClient()
     # Both renders never reach one face -> both exhaust their attempts.
@@ -138,6 +149,7 @@ def test_main_returns_nonzero_and_summarizes_when_a_face_check_fails(tmp_path, c
     assert "2/2" in err  # summary line: how many images were kept-but-undetected
 
 
+@pytest.mark.spec("faces.cli-silent-on-success")
 def test_main_all_faces_detected_returns_zero_and_no_warning(tmp_path, capsys):
     fake = FakeComfyClient()
 
@@ -160,6 +172,7 @@ def _hero(tmp_path) -> str:
     return str(p)
 
 
+@pytest.mark.spec("identity.selects-graph-and-uploads")
 def test_identity_selects_the_instantid_graph_and_uploads_the_hero(tmp_path):
     fake = FakeComfyClient()
     hero = _hero(tmp_path)
@@ -181,6 +194,7 @@ def test_identity_selects_the_instantid_graph_and_uploads_the_hero(tmp_path):
     assert load["inputs"]["image"] == "alice.png"
 
 
+@pytest.mark.spec("identity.no-hero-no-upload")
 def test_no_identity_stays_on_the_default_graph_and_uploads_nothing(tmp_path):
     fake = FakeComfyClient()
 
@@ -191,6 +205,7 @@ def test_no_identity_stays_on_the_default_graph_and_uploads_nothing(tmp_path):
     assert "ApplyInstantID" not in classes
 
 
+@pytest.mark.spec("identity.missing-hero-is-an-error")
 def test_identity_with_a_missing_file_is_an_error(tmp_path):
     with pytest.raises(SystemExit) as exc:
         cli.main(
@@ -222,6 +237,8 @@ def _positive_texts(fake: FakeComfyClient) -> list[str]:
     return texts
 
 
+@pytest.mark.spec("batch.independent-people")
+@pytest.mark.spec("batch.stable-filenames")
 def test_prompts_alone_is_a_batch_of_independent_people(tmp_path):
     fake = FakeComfyClient()
     pf = _prompts_file(tmp_path, ["a woman in a park", "a man at a cafe"])
@@ -241,6 +258,7 @@ def test_prompts_alone_is_a_batch_of_independent_people(tmp_path):
     assert names == ["00_00_a_woman_in_a_park.png", "01_00_a_man_at_a_cafe.png"]
 
 
+@pytest.mark.spec("batch.identity-character-sheet")
 def test_prompts_with_identity_is_a_same_person_character_sheet(tmp_path):
     fake = FakeComfyClient()
     hero = _hero(tmp_path)
@@ -260,6 +278,7 @@ def test_prompts_with_identity_is_a_same_person_character_sheet(tmp_path):
     assert _positive_texts(fake) == ["sitting at a cafe", "standing in a park"]
 
 
+@pytest.mark.spec("batch.count-multiplies")
 def test_prompts_multiplies_with_count(tmp_path):
     fake = FakeComfyClient()
     pf = _prompts_file(tmp_path, ["one", "two"])
@@ -281,6 +300,7 @@ def test_prompts_multiplies_with_count(tmp_path):
     ]
 
 
+@pytest.mark.spec("batch.seeds-distinct-deterministic")
 def test_prompts_seeds_are_deterministic_and_distinct(tmp_path):
     fake = FakeComfyClient()
     pf = _prompts_file(tmp_path, ["one", "two"])
@@ -298,6 +318,7 @@ def test_prompts_seeds_are_deterministic_and_distinct(tmp_path):
     assert seeds == [100, 101, 102, 103]  # base_seed + running index, reproducible
 
 
+@pytest.mark.spec("batch.sources-are-exclusive")
 def test_prompt_and_prompts_together_is_an_error(tmp_path):
     pf = _prompts_file(tmp_path, ["x"])
     with pytest.raises(SystemExit) as exc:
@@ -309,6 +330,7 @@ def test_prompt_and_prompts_together_is_an_error(tmp_path):
     assert exc.value.code != 0
 
 
+@pytest.mark.spec("batch.empty-file-is-an-error")
 def test_prompts_empty_file_is_an_error(tmp_path):
     pf = _prompts_file(tmp_path, ["   ", ""])
     with pytest.raises(SystemExit) as exc:
@@ -320,6 +342,7 @@ def test_prompts_empty_file_is_an_error(tmp_path):
     assert exc.value.code != 0
 
 
+@pytest.mark.spec("portrait.random-seed-consistent-within-run")
 def test_omitting_seed_still_renders_reproducibly_within_a_run(tmp_path):
     # No --seed -> a random base seed is chosen once; the set stays internally consistent
     # (distinct, consecutive seeds) even though the base is not fixed across runs.
