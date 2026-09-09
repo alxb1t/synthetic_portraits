@@ -205,3 +205,55 @@ def test_comfy_client_upload_image_sends_multipart(monkeypatch):
     assert captured["content_type"].startswith("multipart/form-data; boundary=")
     assert b'filename="pose.png"' in captured["body"]
     assert b"IMG" in captured["body"]
+
+
+# --- The explicit User-Agent (change 0004, design D4) ------------------------
+
+
+def _capture_request(monkeypatch, call):
+    """Run ``call(client)`` against a stubbed ``urlopen``; return the ``Request`` it built."""
+    captured = {}
+
+    def handler(req):
+        captured["req"] = req
+        # Serves every call path: `.get("name")` and `.get("prompt_id")` both resolve,
+        # and `get_image` reads the raw bytes without decoding them.
+        return json.dumps({"name": "pose.png", "prompt_id": "abc"}).encode()
+
+    _stub_urlopen(monkeypatch, handler)
+    call(ComfyClient("http://localhost:8188"))
+    return captured["req"]
+
+
+CALLS = {
+    "queue_prompt": lambda c: c.queue_prompt({"1": {"class_type": "KSampler"}}),
+    "get_history": lambda c: c.get_history("abc"),
+    "get_image": lambda c: c.get_image("out.png", "", "output"),
+    "upload_image": lambda c: c.upload_image("pose.png", b"IMG"),
+}
+
+
+@pytest.mark.parametrize("call_name", list(CALLS))
+@pytest.mark.spec("comfy.sends-user-agent")
+def test_every_request_carries_an_explicit_user_agent(monkeypatch, call_name):
+    # Cloudflare answers `Python-urllib/3.x` with error 1010 — a user-agent block — so a
+    # request left on the stdlib default is refused before it reaches ComfyUI. Every call
+    # path must set one, which is why this is parametrized across all four rather than
+    # asserted on whichever one happens to be convenient.
+    req = _capture_request(monkeypatch, CALLS[call_name])
+
+    user_agent = req.get_header("User-agent")
+
+    assert user_agent, f"{call_name} left the User-Agent to the standard library's default"
+    assert not user_agent.startswith("Python-urllib"), user_agent
+
+
+@pytest.mark.parametrize("call_name", ["queue_prompt", "upload_image"])
+@pytest.mark.spec("comfy.user-agent-preserves-content-type")
+def test_the_user_agent_does_not_displace_an_existing_content_type(monkeypatch, call_name):
+    # Adding a header must not change what a request already sends: the two POST paths
+    # each set their own content type, and both must survive.
+    req = _capture_request(monkeypatch, CALLS[call_name])
+
+    assert req.get_header("Content-type"), f"{call_name} lost its Content-Type"
+    assert req.get_header("User-agent")

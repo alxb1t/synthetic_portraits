@@ -27,6 +27,18 @@ files and the annotated tag are one line — they agree, or the release halts.
 
 ### Added
 
+- **Every request to ComfyUI now carries an explicit `User-Agent`.** Cloudflare, which fronts
+  a pod when no tunnelled route exists, answers the standard library's default
+  `Python-urllib/3.x` with error 1010 — a user-agent block — so the request never reaches
+  ComfyUI and the failure surfaces as an unexplained transport error. Measured 2026-09-09:
+  `curl` received HTTP 200 where this client received 1010 against the same URL. The header is
+  set at a single `Request` factory inside `ComfyClient`, so no call path can be added later
+  that silently keeps the default. No dependency is added; the runtime stays stdlib-only.
+
+  This makes the provider's HTTP proxy usable as a **diagnostic** channel. It is not a
+  supported render path and has not been render-tested — the SSH tunnel remains the only
+  path this project claims works.
+
 - **An offline consistency guard for the pinned set** (`tests/test_infra.py`). The existing
   `pod.constraints-fully-pinned` scenario is *satisfied* by a set pip cannot resolve, which is
   how the contradiction above shipped and stayed red for a month. Two new scenarios assert what

@@ -16,7 +16,7 @@ that cannot run. Phase 5 is the only phase that touches money.
 ## Progress
 
 - [x] 1 — The constraints fix and the offline consistency guard
-- [ ] 2 — The transport's explicit `User-Agent`
+- [x] 2 — The transport's explicit `User-Agent`
 - [ ] 3 — The CLI's early failure on a missing `faces` group
 - [ ] 4 — `infra/up.sh`: bounded readiness, self-teardown, opt-in HTTP port
 - [ ] 5 — Docs, spec binding, and the real image build
@@ -47,18 +47,18 @@ The blocking phase (design D1, D2). Test-first: the guard must **fail against th
 
 Design D4. One construction point, so no call path can keep the default.
 
-- [ ] 2.1 Add failing tests to `tests/test_transport.py`, marked
+- [x] 2.1 Add failing tests to `tests/test_transport.py`, marked
       `spec("comfyui-execution.comfy.sends-user-agent")` and
       `spec("comfyui-execution.comfy.user-agent-preserves-content-type")`: assert every request the
       client builds carries a non-default `User-Agent`, across submit, history, view and upload, and that
       a request setting its own content type still sends it. Verify: `uv run pytest -q
       tests/test_transport.py` fails, naming the missing header.
-- [ ] 2.2 Set the header at the single `Request` construction point in
+- [x] 2.2 Set the header at the single `Request` construction point in
       `synthetic_portraits/transport.py`. Verify: those tests pass and the whole suite stays green.
-- [ ] 2.3 Confirm the runtime is still stdlib-only. Verify: `uv run python -c "import
+- [x] 2.3 Confirm the runtime is still stdlib-only. Verify: `uv run python -c "import
       synthetic_portraits.transport"` succeeds with no third-party import, and `pyproject.toml`'s
       `dependencies` is still `[]`.
-- [ ] 2.4 `CHANGELOG.md` entry. Verify: `make gate` is green, then commit.
+- [x] 2.4 `CHANGELOG.md` entry. Verify: `make gate` is green, then commit.
 
 ## 3. The CLI's early failure on a missing `faces` group
 
