@@ -19,7 +19,7 @@ that cannot run. Phase 5 is the only phase that touches money.
 - [x] 2 — The transport's explicit `User-Agent`
 - [x] 3 — The CLI's early failure on a missing `faces` group
 - [x] 4 — `infra/up.sh`: bounded readiness, self-teardown, opt-in HTTP port
-- [ ] 5 — Docs, spec binding, and the real image build
+- [x] 5 — Docs, spec binding, and the real image build
 
 ---
 
@@ -106,18 +106,18 @@ unconditional `8188/http` port is not adopted as written (D3). Review them, then
 
 The only phase that leaves the repository. It spends no GPU: `build-image` is CI, not a pod.
 
-- [ ] 5.1 `README.md`: record that the **CLI** needs `uv run --group faces`, not only
+- [x] 5.1 `README.md`: record that the **CLI** needs `uv run --group faces`, not only
       `scripts/check_face.py`; that the SSH tunnel is the only supported render path; and that
       `RUNPOD_EXPOSE_HTTP` publishes a public, unauthenticated endpoint. Verify: `make gate` is green.
-- [ ] 5.2 Confirm every scenario `Key:` introduced by this change is bound to a marked test. Verify:
-      `uv run pytest -q -m spec` collects tests for all nine new keys.
-- [ ] 5.3 Run the real image build against this branch — `gh workflow run build-image.yml --ref
+- [x] 5.2 Confirm every scenario `Key:` introduced by this change is bound to a marked test. Verify:
+      `uv run pytest -q -m spec` collects tests for all ten new keys.
+- [x] 5.3 Run the real image build against this branch — `gh workflow run build-image.yml --ref
       <branch>`, then `gh run watch`. Verify: the run **succeeds**, which is the first green
       `build-image` since 2026-08-10 and the proof that D1 resolved the contradiction. **This is the
       phase's load-bearing verification** — the gate cannot prove it.
-- [ ] 5.4 Verify the built image actually carries the nodes, without booting a pod: pull the image
+- [x] 5.4 Verify the built image actually carries the nodes, without booting a pod: pull the image
       produced by 5.3 and list `/opt/ComfyUI/custom_nodes/`. Verify: `ComfyUI-Impact-Pack`,
       `ComfyUI-Impact-Subpack` and `ComfyUI_InstantID` are all present — the condition whose absence
       started this change. If no Docker daemon is available locally, record that this was deferred to the
       `/object_info` check in the migration plan rather than marking it done.
-- [ ] 5.5 `CHANGELOG.md`: close the `v0.4` entry. Verify: `make gate` is green, then commit.
+- [x] 5.5 `CHANGELOG.md`: close the `v0.4` entry. Verify: `make gate` is green, then commit.

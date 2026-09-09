@@ -11,6 +11,15 @@ files and the annotated tag are one line — they agree, or the release halts.
 
 ## [Unreleased]
 
+### Changed
+
+- **`README.md` records three things a failed session proved were missing.** The **CLI** needs
+  `uv run --group faces`, not only `scripts/check_face.py` — the group is now step 0, before a
+  pod is brought up, because a pod started first is already billing when the import fails. The
+  **SSH tunnel is named as the only supported render path**, with `RUNPOD_EXPOSE_HTTP` written
+  up as a public, unauthenticated, un-render-tested escape hatch. And `up.sh`'s self-teardown
+  deadlines are stated where the pod is brought up.
+
 ### Fixed
 
 - **The pod image is buildable again.** `constraints.txt` pinned `numpy==1.26.4` (the Impact
