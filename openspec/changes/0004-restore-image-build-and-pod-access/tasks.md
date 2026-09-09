@@ -17,7 +17,7 @@ that cannot run. Phase 5 is the only phase that touches money.
 
 - [x] 1 — The constraints fix and the offline consistency guard
 - [x] 2 — The transport's explicit `User-Agent`
-- [ ] 3 — The CLI's early failure on a missing `faces` group
+- [x] 3 — The CLI's early failure on a missing `faces` group
 - [ ] 4 — `infra/up.sh`: bounded readiness, self-teardown, opt-in HTTP port
 - [ ] 5 — Docs, spec binding, and the real image build
 
@@ -65,18 +65,18 @@ Design D4. One construction point, so no call path can keep the default.
 Design D5. The check runs only when no detector was injected, so the suite still needs nothing from the
 optional group.
 
-- [ ] 3.1 Add failing tests to `tests/test_cli.py`, marked
+- [x] 3.1 Add failing tests to `tests/test_cli.py`, marked
       `spec("face-detectability.faces.cli-missing-dep-named")`,
       `spec("face-detectability.faces.cli-missing-dep-early")` and
       `spec("face-detectability.faces.cli-injected-detector-skips-check")`: with the group simulated
       absent, the CLI exits with an error naming the `faces` group and the `uv run --group faces`
       invocation, submits nothing to the transport, and performs no check at all when a detector is
       injected. Verify: `uv run pytest -q tests/test_cli.py` fails.
-- [ ] 3.2 Implement the guard in `synthetic_portraits/cli.py`, before any transport work and only on the
+- [x] 3.2 Implement the guard in `synthetic_portraits/cli.py`, before any transport work and only on the
       non-injected path. Verify: those tests pass; the full suite is green.
-- [ ] 3.3 Verify the failure is early in the way that matters — the test asserting nothing reached the
+- [x] 3.3 Verify the failure is early in the way that matters — the test asserting nothing reached the
       transport must be the one that proves it, not a comment.
-- [ ] 3.4 `CHANGELOG.md` entry. Verify: `make gate` is green, then commit.
+- [x] 3.4 `CHANGELOG.md` entry. Verify: `make gate` is green, then commit.
 
 ## 4. `infra/up.sh`: bounded readiness, self-teardown, opt-in HTTP port
 

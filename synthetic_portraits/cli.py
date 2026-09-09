@@ -15,7 +15,12 @@ from pathlib import Path
 
 from . import pipeline
 from .batch import read_prompts, slugify
-from .faces import FaceDetector, default_face_detector
+from .faces import (
+    FACES_GROUP_HINT,
+    FaceDetector,
+    default_face_detector,
+    missing_face_dependencies,
+)
 from .models import DEFAULT_MODEL, IDENTITY_MODEL, SELECTABLE_MODELS, get_model
 from .transport import ComfyClient, ComfyTransport
 from .workflow import (
@@ -120,7 +125,19 @@ def main(
         model = get_model(args.model)
 
     client = transport if transport is not None else ComfyClient(args.server)
-    face_detector = detector if detector is not None else default_face_detector()
+
+    # The detector is built before anything is queued, so a missing optional dependency is
+    # reported while it is still free to fix — the render server is a metered GPU pod, and
+    # the bare ModuleNotFoundError used to surface only after it was already billing. The
+    # check runs ONLY on the non-injected path, so a caller supplying a stand-in (every
+    # test does) never needs the group at all. See change 0004, design D5.
+    if detector is not None:
+        face_detector = detector
+    else:
+        missing = missing_face_dependencies()
+        if missing:
+            parser.error(f"{FACES_GROUP_HINT} (missing: {', '.join(missing)})")
+        face_detector = default_face_detector()
 
     # A fixed --seed reproduces the whole set; omit it for a random base. Every element of the
     # set (prompt i, render k) gets a distinct, consecutive seed off that base.

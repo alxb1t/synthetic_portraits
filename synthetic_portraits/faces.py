@@ -25,12 +25,23 @@ from pathlib import Path
 from typing import Protocol, runtime_checkable
 
 __all__ = [
+    "FACES_GROUP_HINT",
     "AntelopeV2FaceDetector",
     "FaceDetector",
     "FakeFaceDetector",
     "default_face_detector",
     "ensure_antelopev2",
+    "missing_face_dependencies",
 ]
+
+# The modules AntelopeV2FaceDetector imports, and the invocation that supplies them. Named
+# here so the CLI can report the GROUP rather than whichever transitive module happened to
+# fail first — `No module named 'cv2'` says nothing about how to fix it. See change 0004, D5.
+_FACE_DEPENDENCY_MODULES = ("cv2", "numpy", "insightface")
+FACES_GROUP_HINT = (
+    "face detection needs the optional `faces` dependency group; "
+    "re-run with `uv run --group faces python generate.py ...`"
+)
 
 # --- antelopev2 pins (security S1/S3) -------------------------------------------------
 # The pod fetches this pack via download_models.sh (pinned commit SHA + SHA-256 verified).
@@ -114,6 +125,19 @@ class AntelopeV2FaceDetector:
         if decoded is None:
             raise ValueError("could not decode image bytes for face detection")
         return len(self._app.get(decoded))
+
+
+def missing_face_dependencies() -> list[str]:
+    """Names of the ``faces`` group modules that cannot be imported, in import order.
+
+    Checked with :func:`importlib.util.find_spec` rather than by catching
+    :exc:`ModuleNotFoundError` around construction: catching would also swallow an
+    unrelated missing module raised from inside the detector and mislabel it as a missing
+    group (design D5). Importing nothing here keeps the runtime stdlib-only.
+    """
+    import importlib.util
+
+    return [m for m in _FACE_DEPENDENCY_MODULES if importlib.util.find_spec(m) is None]
 
 
 def default_face_detector() -> FaceDetector:

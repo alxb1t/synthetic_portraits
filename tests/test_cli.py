@@ -356,3 +356,65 @@ def test_omitting_seed_still_renders_reproducibly_within_a_run(tmp_path):
         for wf in fake.queued_workflows
     ]
     assert seeds == [seeds[0], seeds[0] + 1, seeds[0] + 2]
+
+
+# --- The `faces` group, reported early (change 0004, design D5) --------------
+
+
+@pytest.mark.spec("faces.cli-missing-dep-named")
+def test_missing_faces_group_names_the_group_not_the_transitive_module(monkeypatch, tmp_path):
+    # The bare failure is `ModuleNotFoundError: No module named 'cv2'`, which names a
+    # transitive module and tells the operator nothing about how to fix it.
+    monkeypatch.setattr(cli, "missing_face_dependencies", lambda: ["cv2", "insightface"])
+
+    with pytest.raises(SystemExit) as excinfo:
+        cli.main(["--prompt", "p", "--out", str(tmp_path)], transport=FakeComfyClient())
+
+    assert excinfo.value.code != 0
+
+
+@pytest.mark.spec("faces.cli-missing-dep-named")
+def test_missing_faces_group_message_names_the_group_and_the_invocation(
+    monkeypatch, tmp_path, capsys
+):
+    monkeypatch.setattr(cli, "missing_face_dependencies", lambda: ["cv2"])
+
+    with pytest.raises(SystemExit):
+        cli.main(["--prompt", "p", "--out", str(tmp_path)], transport=FakeComfyClient())
+
+    message = capsys.readouterr().err
+    assert "faces" in message
+    assert "--group faces" in message
+    assert "cv2" in message, "the missing module is still worth naming, as a detail"
+
+
+@pytest.mark.spec("faces.cli-missing-dep-early")
+def test_missing_faces_group_submits_nothing_to_the_transport(monkeypatch, tmp_path):
+    # The point of the check: the render server is a metered GPU pod, so the operator must
+    # learn the dependency is missing while it is still free to fix. Nothing may be queued.
+    monkeypatch.setattr(cli, "missing_face_dependencies", lambda: ["cv2"])
+    fake = FakeComfyClient()
+
+    with pytest.raises(SystemExit):
+        cli.main(["--prompt", "p", "--out", str(tmp_path)], transport=fake)
+
+    assert fake.queued_workflows == []
+    assert fake.uploads == []
+
+
+@pytest.mark.spec("faces.cli-injected-detector-skips-check")
+def test_an_injected_detector_never_consults_the_optional_group(monkeypatch, tmp_path):
+    # Keeps the seam intact: every test injects a stand-in, so the suite must never need
+    # the optional group. A checker that raises proves it was not consulted at all.
+    def _must_not_be_called():
+        raise AssertionError("the dependency check ran despite an injected detector")
+
+    monkeypatch.setattr(cli, "missing_face_dependencies", _must_not_be_called)
+
+    exit_code = cli.main(
+        ["--prompt", "p", "--out", str(tmp_path)],
+        transport=FakeComfyClient(),
+        detector=_ACCEPT,
+    )
+
+    assert exit_code == 0

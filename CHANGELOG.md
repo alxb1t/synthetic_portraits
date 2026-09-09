@@ -39,6 +39,18 @@ files and the annotated tag are one line — they agree, or the release halts.
   supported render path and has not been render-tested — the SSH tunnel remains the only
   path this project claims works.
 
+- **The CLI reports a missing `faces` group before it queues anything.** `generate.py`
+  constructs the real detector on every run, so without the optional group it died on
+  `ModuleNotFoundError: No module named 'cv2'` — a transitive module that says nothing about
+  the fix — and only *after* a metered pod was already up. It now fails with
+  `face detection needs the optional 'faces' dependency group; re-run with
+  'uv run --group faces python generate.py ...'`, naming the missing modules as detail.
+
+  Presence is checked with `importlib.util.find_spec`, not by catching `ModuleNotFoundError`
+  around construction: catching would also swallow an unrelated missing module raised from
+  inside the detector and mislabel it. The check runs **only** when no detector was injected,
+  so the seam is intact and no test needs the group.
+
 - **An offline consistency guard for the pinned set** (`tests/test_infra.py`). The existing
   `pod.constraints-fully-pinned` scenario is *satisfied* by a set pip cannot resolve, which is
   how the contradiction above shipped and stayed red for a month. Two new scenarios assert what
