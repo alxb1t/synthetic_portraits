@@ -8,6 +8,7 @@ Docker daemon) — ``.github/workflows/build-image.yml`` builds the image for re
 
 from __future__ import annotations
 
+import json
 import re
 import shutil
 import subprocess
@@ -331,3 +332,81 @@ def test_pod_id_state_file_is_gitignored():
     # The pod-id scratch file is per-run local state, never committed.
     gitignore = (REPO_ROOT / ".gitignore").read_text()
     assert ".pod_id" in gitignore
+
+
+# --- Bounded readiness, self-teardown, opt-in HTTP (change 0004, D3/D6) ------
+
+
+def _up_payload_ports(**env: str) -> list[str]:
+    """Run up.sh's payload builder with a controlled environment; return its ports list.
+
+    The heredoc is executed rather than pattern-matched, so this asserts what the script
+    actually sends to the provider rather than what its source appears to say.
+    """
+    text = UP.read_text()
+    start = text.index("python3 <<'PY'") + len("python3 <<'PY'")
+    snippet = text[start : text.index("\nPY\n", start)]
+    base = {
+        "RUNPOD_NAME": "test-pod",
+        "RUNPOD_IMG": "example/image:latest",
+        "RUNPOD_GPU": "TEST GPU",
+        "RUNPOD_DISK": "30",
+        "RUNPOD_MNT": "/runpod-volume",
+        "RUNPOD_VOL": "volumeid",
+        "RUNPOD_DC": "",
+        "RUNPOD_PUBKEY": "ssh-ed25519 AAAA test",
+    }
+    proc = subprocess.run(
+        ["python3", "-c", snippet],
+        env={**base, **env},
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return json.loads(proc.stdout)["ports"]
+
+
+@pytest.mark.spec("pod.up-http-port-opt-in")
+def test_up_requests_only_the_tunnelled_port_by_default():
+    # The provider serves an HTTP-exposed port at a PUBLIC, UNAUTHENTICATED URL, and
+    # ComfyUI has no auth of its own. Publishing it must be a decision, not a default —
+    # the shipped `pod.up-enables-ssh` scenario says "without exposing a public port".
+    assert _up_payload_ports() == ["22/tcp"]
+
+
+@pytest.mark.spec("pod.up-http-port-opt-in")
+def test_up_publishes_the_http_port_only_when_explicitly_opted_in():
+    ports = _up_payload_ports(RUNPOD_EXPOSE_HTTP="1")
+
+    assert "22/tcp" in ports, "opting into HTTP must not cost the tunnel"
+    assert any("8188" in p for p in ports)
+
+
+@pytest.mark.spec("pod.up-bounded-readiness")
+def test_up_bounds_readiness_with_a_longer_deadline_for_the_fallback():
+    # A pod that reaches RUNNING without becoming reachable bills indefinitely for nothing.
+    # The fallback gets longer because ComfyUI must also finish starting behind the proxy.
+    text = UP.read_text()
+    tunnel_match = re.search(r"READY_DEADLINE_TUNNEL_SECS:-(\d+)", text)
+    proxy_match = re.search(r"READY_DEADLINE_PROXY_SECS:-(\d+)", text)
+    assert tunnel_match, "up.sh declares no tunnelled readiness deadline"
+    assert proxy_match, "up.sh declares no fallback readiness deadline"
+
+    tunnel, proxy = int(tunnel_match.group(1)), int(proxy_match.group(1))
+
+    assert tunnel > 0 and proxy > 0
+    assert proxy > tunnel, f"fallback deadline {proxy}s must exceed tunnelled {tunnel}s"
+
+
+@pytest.mark.spec("pod.up-tears-down-on-timeout")
+def test_up_tears_the_pod_down_when_readiness_expires():
+    # Teardown reuses down.sh so there is ONE code path that stops billing. A hand-rolled
+    # DELETE here would be a second one to keep correct.
+    text = UP.read_text()
+
+    # Must be an INVOCATION, not a mention. up.sh already prints "tear down with:
+    # infra/down.sh" as advice, and advice does not stop billing.
+    assert re.search(r'^\s*"\$\{SCRIPT_DIR\}/down\.sh"', text, re.M), (
+        "expiry must execute down.sh, not merely print it"
+    )
+    assert "DELETE" not in text, "up.sh must not hand-roll its own delete"

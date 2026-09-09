@@ -34,6 +34,25 @@ COMFYUI_PORT="${COMFYUI_PORT:-8188}"
 SSH_KEY="${RUNPOD_SSH_KEY:-${HOME}/.ssh/id_ed25519_runpod}"
 STATE_FILE="${SCRIPT_DIR}/.pod_id"
 
+# Readiness deadlines (design D6). A pod that reaches RUNNING without ever becoming
+# reachable bills indefinitely for nothing — RunPod returned several such pods on
+# 2026-09-08/09, with runtime:null, no publicIp and no portMappings. The wait is therefore
+# bounded, and expiry tears the pod down instead of warning and leaving it running. The
+# fallback deadline is longer because ComfyUI must additionally finish starting behind the
+# proxy, whereas the tunnelled path only waits for an IP to be issued.
+READY_DEADLINE_TUNNEL_SECS="${READY_DEADLINE_TUNNEL_SECS:-180}"
+READY_DEADLINE_PROXY_SECS="${READY_DEADLINE_PROXY_SECS:-420}"
+POLL_INTERVAL_SECS="${POLL_INTERVAL_SECS:-5}"
+
+# Publishing ComfyUI's port is OPT-IN (design D3). An HTTP-exposed port is served by
+# RunPod at https://<pod id>-8188.proxy.runpod.net and needs no public IP, so it works
+# exactly when the tunnel cannot. But RunPod's own docs say "your service becomes publicly
+# accessible" and "the Pod ID provides only obscurity, not security", and ComfyUI has no
+# auth of its own. The requirement pod.up-enables-ssh says the render server is reached
+# "without exposing a public port", so tunnel-only stays the default and exposure is a
+# deliberate act. The proxy is a DIAGNOSTIC channel: it is not render-tested.
+EXPOSE_HTTP="${RUNPOD_EXPOSE_HTTP:-0}"
+
 if [ -f "$STATE_FILE" ]; then
     echo "a pod id already exists at ${STATE_FILE} ($(cat "$STATE_FILE")) — run infra/down.sh first" >&2
     exit 1
@@ -44,15 +63,21 @@ if [ ! -f "${SSH_KEY}.pub" ]; then
 fi
 PUBKEY="$(cat "${SSH_KEY}.pub")"
 
-# Build the create payload safely (PUBLIC_KEY enables SSH; only 22/tcp is exposed —
-# ComfyUI's 8188 is reached through the tunnel). dataCenterIds is set when provided so
-# the pod lands in the network volume's region.
+# Build the create payload safely (PUBLIC_KEY enables SSH). dataCenterIds is set when
+# provided so the pod lands in the network volume's region. Ports: 22/tcp always, and
+# ComfyUI's 8188/http only when RUNPOD_EXPOSE_HTTP=1 — see the EXPOSE_HTTP comment above.
 payload=$(
     RUNPOD_NAME="$POD_NAME" RUNPOD_IMG="$IMAGE" RUNPOD_GPU="$GPU_TYPE" \
     RUNPOD_DISK="$CONTAINER_DISK_GB" RUNPOD_MNT="$VOLUME_MOUNT_PATH" \
     RUNPOD_VOL="$RUNPOD_NETWORK_VOLUME_ID" RUNPOD_DC="${RUNPOD_DATACENTER:-}" \
-    RUNPOD_PUBKEY="$PUBKEY" python3 <<'PY'
+    RUNPOD_PUBKEY="$PUBKEY" RUNPOD_EXPOSE_HTTP="$EXPOSE_HTTP" python3 <<'PY'
 import json, os
+
+# Tunnelled access always; the public HTTP port only when explicitly opted into.
+ports = ["22/tcp"]
+if os.environ.get("RUNPOD_EXPOSE_HTTP") == "1":
+    ports.append("8188/http")
+
 body = {
     "name": os.environ["RUNPOD_NAME"],
     "imageName": os.environ["RUNPOD_IMG"],
@@ -64,7 +89,7 @@ body = {
     "containerDiskInGb": int(os.environ["RUNPOD_DISK"]),
     "volumeMountPath": os.environ["RUNPOD_MNT"],
     "networkVolumeId": os.environ["RUNPOD_VOL"],
-    "ports": ["22/tcp"],
+    "ports": ports,
     "env": {"PUBLIC_KEY": os.environ["RUNPOD_PUBKEY"]},
 }
 dc = os.environ.get("RUNPOD_DC")
@@ -89,12 +114,18 @@ fi
 printf '%s' "$pod_id" > "$STATE_FILE"
 echo "pod created: ${pod_id} (id saved to ${STATE_FILE})"
 
+deadline_secs="$READY_DEADLINE_TUNNEL_SECS"
+if [ "$EXPOSE_HTTP" = "1" ]; then
+    deadline_secs="$READY_DEADLINE_PROXY_SECS"
+fi
+
 # Poll the query endpoint (?id=) — unlike GET /pods/{id}, it populates publicIp +
 # portMappings once the TCP proxy is wired up.
-echo "waiting for the pod's public IP + SSH port…"
-public_ip=""
-ssh_port=""
-for _ in $(seq 1 60); do
+echo "waiting up to ${deadline_secs}s for the pod's public IP + SSH port…"
+public_ip="-"
+ssh_port="-"
+elapsed=0
+while [ "$elapsed" -lt "$deadline_secs" ]; do
     pod=$(curl -sS "${API}/pods?id=${pod_id}" -H "Authorization: Bearer ${RUNPOD_API_KEY}")
     read -r public_ip ssh_port <<EOF2
 $(printf '%s' "$pod" | python3 -c '
@@ -105,11 +136,12 @@ pm = d.get("portMappings") or {}
 print(d.get("publicIp") or "-", pm.get("22", "-"))
 ' 2>/dev/null || echo "- -")
 EOF2
-    echo "  ip=${public_ip} ssh_port=${ssh_port}"
+    echo "  [${elapsed}s/${deadline_secs}s] ip=${public_ip} ssh_port=${ssh_port}"
     if [ "$public_ip" != "-" ] && [ "$ssh_port" != "-" ]; then
         break
     fi
-    sleep 5
+    sleep "$POLL_INTERVAL_SECS"
+    elapsed=$((elapsed + POLL_INTERVAL_SECS))
 done
 
 echo
@@ -118,8 +150,17 @@ if [ "$public_ip" != "-" ] && [ "$ssh_port" != "-" ]; then
     echo "  SSH:    ssh -i ${SSH_KEY} root@${public_ip} -p ${ssh_port}"
     echo "  Tunnel: ssh -i ${SSH_KEY} -N -L ${COMFYUI_PORT}:localhost:${COMFYUI_PORT} root@${public_ip} -p ${ssh_port}"
     echo "then ComfyUI is at http://localhost:${COMFYUI_PORT} (through the tunnel — no Cloudflare)"
+    if [ "$EXPOSE_HTTP" = "1" ]; then
+        echo "  Proxy:  https://${pod_id}-${COMFYUI_PORT}.proxy.runpod.net"
+        echo "          PUBLIC and UNAUTHENTICATED, and NOT render-tested — diagnostics only."
+    fi
+    echo
+    echo "tear down with: infra/down.sh   (do this promptly — billing runs until then)"
 else
-    echo "public IP / SSH port not ready — check 'curl ${API}/pods?id=${pod_id}'." >&2
+    echo "pod ${pod_id} never became reachable within ${deadline_secs}s." >&2
+    echo "This is a known RunPod condition (RUNNING with no public IP and no port" >&2
+    echo "mapping), not a fault here. Tearing the pod down now so it stops billing." >&2
+    "${SCRIPT_DIR}/down.sh" "$pod_id"
+    echo "pod ${pod_id} torn down. Re-run infra/up.sh to try again." >&2
+    exit 1
 fi
-echo
-echo "tear down with: infra/down.sh   (do this promptly — billing runs until then)"

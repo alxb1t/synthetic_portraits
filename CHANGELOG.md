@@ -51,6 +51,21 @@ files and the annotated tag are one line — they agree, or the release halts.
   inside the detector and mislabel it. The check runs **only** when no detector was injected,
   so the seam is intact and no test needs the group.
 
+- **`infra/up.sh` now tears down a pod it cannot reach.** Readiness was a 300 s wait that
+  ended in a printed warning and a *live, billing* pod. RunPod repeatedly returned pods on
+  2026-09-08/09 that reached `RUNNING` with `runtime: null`, no `publicIp` and no
+  `portMappings` — reachable only over their SSH proxy, which cannot carry a port forward.
+  The wait is now a bounded deadline (180 s tunnelled, 420 s when HTTP exposure is opted
+  into) after which `down.sh` is invoked and the script exits non-zero. Teardown reuses
+  `down.sh` rather than a hand-rolled DELETE, so one code path stops billing.
+
+- **`RUNPOD_EXPOSE_HTTP`** — opt-in publication of ComfyUI's port on RunPod's HTTP proxy,
+  **default off**. The proxy needs no public IP, so it is the only route that works when the
+  tunnel cannot; it is also a public, unauthenticated URL fronting a ComfyUI with no auth,
+  which is why it is a deliberate act rather than a default. Requirement `pod.up-enables-ssh`
+  ("reached without exposing a public port") continues to describe the default path. The
+  proxy remains a **diagnostic** channel and is not render-tested.
+
 - **An offline consistency guard for the pinned set** (`tests/test_infra.py`). The existing
   `pod.constraints-fully-pinned` scenario is *satisfied* by a set pip cannot resolve, which is
   how the contradiction above shipped and stayed red for a month. Two new scenarios assert what

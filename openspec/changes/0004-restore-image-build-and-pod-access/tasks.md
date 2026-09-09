@@ -18,7 +18,7 @@ that cannot run. Phase 5 is the only phase that touches money.
 - [x] 1 — The constraints fix and the offline consistency guard
 - [x] 2 — The transport's explicit `User-Agent`
 - [x] 3 — The CLI's early failure on a missing `faces` group
-- [ ] 4 — `infra/up.sh`: bounded readiness, self-teardown, opt-in HTTP port
+- [x] 4 — `infra/up.sh`: bounded readiness, self-teardown, opt-in HTTP port
 - [ ] 5 — Docs, spec binding, and the real image build
 
 ---
@@ -83,24 +83,24 @@ optional group.
 Design D3, D6. This phase **supersedes the two uncommitted edits currently in the working tree** — the
 unconditional `8188/http` port is not adopted as written (D3). Review them, then replace.
 
-- [ ] 4.1 Add failing tests to `tests/test_infra.py`, marked
+- [x] 4.1 Add failing tests to `tests/test_infra.py`, marked
       `spec("gpu-pod-provisioning.pod.up-bounded-readiness")`,
       `spec("gpu-pod-provisioning.pod.up-tears-down-on-timeout")` and
       `spec("gpu-pod-provisioning.pod.up-http-port-opt-in")`: `up.sh` declares both deadlines with the
       fallback longer than the tunnelled one, invokes `down.sh` on expiry, and requests only the
       tunnelled port unless `RUNPOD_EXPOSE_HTTP` is set. Verify: `uv run pytest -q tests/test_infra.py`
       fails.
-- [ ] 4.2 Rewrite the readiness loop in `infra/up.sh`: 180 s tunnelled / 420 s with HTTP exposure, then
+- [x] 4.2 Rewrite the readiness loop in `infra/up.sh`: 180 s tunnelled / 420 s with HTTP exposure, then
       invoke `down.sh` (never a hand-rolled DELETE — D6) and exit non-zero. Verify: the deadline tests
       pass.
-- [ ] 4.3 Gate the `8188/http` port behind `RUNPOD_EXPOSE_HTTP=1`, defaulting off, keeping the proxy URL
+- [x] 4.3 Gate the `8188/http` port behind `RUNPOD_EXPOSE_HTTP=1`, defaulting off, keeping the proxy URL
       printed only when it was requested. Verify: the opt-in test passes and the existing
       `pod.up-enables-ssh` scenario still holds.
-- [ ] 4.4 Confirm the script still parses and is strict-mode. Verify: `bash -n infra/up.sh` exits 0 and
+- [x] 4.4 Confirm the script still parses and is strict-mode. Verify: `bash -n infra/up.sh` exits 0 and
       the existing `pod.scripts-syntax-clean` / `pod.scripts-strict-mode` tests are green.
-- [ ] 4.5 Add `RUNPOD_EXPOSE_HTTP` to `.env.example`, documented as public and unauthenticated, default
+- [x] 4.5 Add `RUNPOD_EXPOSE_HTTP` to `.env.example`, documented as public and unauthenticated, default
       off. Verify: `.env.example` stays path-free — the existing hygiene test is green.
-- [ ] 4.6 `CHANGELOG.md` entry. Verify: `make gate` is green, then commit.
+- [x] 4.6 `CHANGELOG.md` entry. Verify: `make gate` is green, then commit.
 
 ## 5. Docs, spec binding, and the real image build
 
