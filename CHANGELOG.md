@@ -11,6 +11,30 @@ files and the annotated tag are one line — they agree, or the release halts.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The pod image is buildable again.** `constraints.txt` pinned `numpy==1.26.4` (the Impact
+  Pack's ceiling) alongside `opencv-python-headless==5.0.0.93`, which requires `numpy>=2`. The
+  set was exactly pinned and mutually unsatisfiable, so every `build-image` run ended in
+  `ResolutionImpossible`. `opencv-python-headless` moves to `4.11.0.86` — the version already
+  pinned beside it as `opencv-python`, so the image now resolves one OpenCV rather than two.
+
+  The consequence was not cosmetic: `build-image` had failed on every push to `main` since
+  2026-08-10, so the published `:latest` was still the artefact built from the commit *before*
+  the custom nodes were added. A pod booted from it had an empty `custom_nodes/`, and both
+  shipped graphs failed at submit with `Cannot execute because node
+  UltralyticsDetectorProvider does not exist`.
+
+### Added
+
+- **An offline consistency guard for the pinned set** (`tests/test_infra.py`). The existing
+  `pod.constraints-fully-pinned` scenario is *satisfied* by a set pip cannot resolve, which is
+  how the contradiction above shipped and stayed red for a month. Two new scenarios assert what
+  that one cannot: the two OpenCV distributions name the same upstream version
+  (`pod.opencv-pins-agree`), and the `numpy` pin can hold beside every other pin
+  (`pod.constraints-mutually-satisfiable`). It is a regression guard, not a resolver — no test
+  here may reach a package index, and `build-image` remains the real proof.
+
 ## [0.3.0] — 2026-09-02
 
 ### Added

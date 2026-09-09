@@ -106,6 +106,61 @@ def test_constraints_file_pins_every_line_exactly():
     assert not any(" @ " in pin for pin in pins), "no URL/VCS requirements in constraints"
 
 
+def _constraint_pins() -> dict[str, str]:
+    # `name==version` -> {name: version}, lowercased; comments and blanks dropped.
+    pins: dict[str, str] = {}
+    for raw in CONSTRAINTS.read_text().splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        name, _, version = line.partition("==")
+        pins[name.strip().lower()] = version.strip()
+    return pins
+
+
+def _major(version: str) -> int:
+    return int(version.split(".")[0])
+
+
+@pytest.mark.spec("pod.opencv-pins-agree")
+def test_constraints_pin_one_opencv_version_across_both_distributions():
+    """The two OpenCV builds must name the same upstream version.
+
+    A regression guard, not a resolver: no test here may reach a package index, so this
+    encodes the trap this repository actually hit rather than proving the set resolves.
+    `build-image` remains the real proof (change 0004, design D2).
+
+    Drift between these two pins is what produced the contradiction in `ca1669f`:
+    `opencv-python` stayed at 4.11.0.86 while `opencv-python-headless` moved to 5.0.0.93,
+    whose `numpy>=2` requirement cannot hold beside the pinned `numpy==1.26.4`.
+    """
+    pins = _constraint_pins()
+    headless, regular = pins["opencv-python-headless"], pins["opencv-python"]
+    assert headless == regular, (
+        f"opencv-python-headless=={headless} disagrees with opencv-python=={regular}; "
+        "the image would resolve two different OpenCV versions"
+    )
+
+
+@pytest.mark.spec("pod.constraints-mutually-satisfiable")
+def test_constraints_numpy_pin_can_hold_beside_every_other_pin():
+    """The pinned set must be satisfiable, not merely exactly pinned.
+
+    `pod.constraints-fully-pinned` is satisfied by a set pip cannot resolve — which is
+    exactly how the image build stayed red from 2026-08-10. OpenCV 5.x requires
+    `numpy>=2`; the Impact Pack, which supplies FaceDetailer and
+    UltralyticsDetectorProvider, caps numpy below 2. Both cannot hold (design D1/D2).
+    """
+    pins = _constraint_pins()
+    numpy_pin = pins["numpy"]
+    assert _major(numpy_pin) < 2, f"numpy=={numpy_pin} breaches the Impact Pack ceiling of <2"
+    for dist in ("opencv-python", "opencv-python-headless"):
+        assert _major(pins[dist]) < 5, (
+            f"{dist}=={pins[dist]} requires numpy>=2, which cannot hold beside "
+            f"the pinned numpy=={numpy_pin}"
+        )
+
+
 @pytest.mark.spec("pod.pins-face-deps")
 def test_dockerfile_installs_requests():
     # ComfyUI imports `requests` (app/frontend_management.py) but does NOT declare it
