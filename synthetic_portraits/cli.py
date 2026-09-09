@@ -131,9 +131,8 @@ def main(
     # the bare ModuleNotFoundError used to surface only after it was already billing. The
     # check runs ONLY on the non-injected path, so a caller supplying a stand-in (every
     # test does) never needs the group at all. See change 0004, design D5.
-    if detector is not None:
-        face_detector = detector
-    else:
+    face_detector = detector
+    if face_detector is None:
         missing = missing_face_dependencies()
         if missing:
             parser.error(f"{FACES_GROUP_HINT} (missing: {', '.join(missing)})")

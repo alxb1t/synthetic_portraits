@@ -114,6 +114,15 @@ fi
 printf '%s' "$pod_id" > "$STATE_FILE"
 echo "pod created: ${pod_id} (id saved to ${STATE_FILE})"
 
+# From here until the pod is confirmed reachable, ANY exit must stop the billing this
+# script started. The readiness deadline below is one way out, but it is only one: a curl
+# that fails under `set -e`, a JSON parse blowup, or a Ctrl-C would each leave a live pod
+# and a written .pod_id behind — the same failure the deadline exists to prevent, reached
+# by a different route. One trap covers the whole class. Cleared on the success path.
+trap 'rc=$?; [ "$rc" -eq 0 ] || { echo "aborting — tearing down pod ${pod_id} so it stops billing" >&2; "${SCRIPT_DIR}/down.sh" "$pod_id" || true; }' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
 deadline_secs="$READY_DEADLINE_TUNNEL_SECS"
 if [ "$EXPOSE_HTTP" = "1" ]; then
     deadline_secs="$READY_DEADLINE_PROXY_SECS"
@@ -124,8 +133,8 @@ fi
 echo "waiting up to ${deadline_secs}s for the pod's public IP + SSH port…"
 public_ip="-"
 ssh_port="-"
-elapsed=0
-while [ "$elapsed" -lt "$deadline_secs" ]; do
+ready_by=$((SECONDS + deadline_secs))
+while [ "$SECONDS" -lt "$ready_by" ]; do
     pod=$(curl -sS "${API}/pods?id=${pod_id}" -H "Authorization: Bearer ${RUNPOD_API_KEY}")
     read -r public_ip ssh_port <<EOF2
 $(printf '%s' "$pod" | python3 -c '
@@ -136,16 +145,16 @@ pm = d.get("portMappings") or {}
 print(d.get("publicIp") or "-", pm.get("22", "-"))
 ' 2>/dev/null || echo "- -")
 EOF2
-    echo "  [${elapsed}s/${deadline_secs}s] ip=${public_ip} ssh_port=${ssh_port}"
+    echo "  [${SECONDS}s/${deadline_secs}s] ip=${public_ip} ssh_port=${ssh_port}"
     if [ "$public_ip" != "-" ] && [ "$ssh_port" != "-" ]; then
         break
     fi
     sleep "$POLL_INTERVAL_SECS"
-    elapsed=$((elapsed + POLL_INTERVAL_SECS))
 done
 
 echo
 if [ "$public_ip" != "-" ] && [ "$ssh_port" != "-" ]; then
+    trap - EXIT  # the pod is good — hand it over rather than tearing it down
     echo "pod ${pod_id} is up at ${public_ip}:${ssh_port}"
     echo "  SSH:    ssh -i ${SSH_KEY} root@${public_ip} -p ${ssh_port}"
     echo "  Tunnel: ssh -i ${SSH_KEY} -N -L ${COMFYUI_PORT}:localhost:${COMFYUI_PORT} root@${public_ip} -p ${ssh_port}"
@@ -159,8 +168,6 @@ if [ "$public_ip" != "-" ] && [ "$ssh_port" != "-" ]; then
 else
     echo "pod ${pod_id} never became reachable within ${deadline_secs}s." >&2
     echo "This is a known RunPod condition (RUNNING with no public IP and no port" >&2
-    echo "mapping), not a fault here. Tearing the pod down now so it stops billing." >&2
-    "${SCRIPT_DIR}/down.sh" "$pod_id"
-    echo "pod ${pod_id} torn down. Re-run infra/up.sh to try again." >&2
+    echo "mapping), not a fault here. The EXIT trap tears it down so it stops billing." >&2
     exit 1
 fi

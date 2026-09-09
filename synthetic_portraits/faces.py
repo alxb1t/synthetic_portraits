@@ -19,6 +19,7 @@ holds in memory) rather than a path.
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import urllib.request
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
@@ -34,10 +35,15 @@ __all__ = [
     "missing_face_dependencies",
 ]
 
-# The modules AntelopeV2FaceDetector imports, and the invocation that supplies them. Named
+# The modules the `faces` group must supply, and the invocation that supplies them. Named
 # here so the CLI can report the GROUP rather than whichever transitive module happened to
 # fail first — `No module named 'cv2'` says nothing about how to fix it. See change 0004, D5.
-_FACE_DEPENDENCY_MODULES = ("cv2", "numpy", "insightface")
+#
+# The first three are what AntelopeV2FaceDetector imports directly; `onnxruntime` is pulled
+# in by insightface at construction, so a partial install of the group fails there with the
+# very ModuleNotFoundError this check exists to pre-empt. tests/test_faces.py asserts this
+# tuple still covers the detector's own imports, so the two cannot drift apart silently.
+_FACE_DEPENDENCY_MODULES = ("cv2", "numpy", "insightface", "onnxruntime")
 FACES_GROUP_HINT = (
     "face detection needs the optional `faces` dependency group; "
     "re-run with `uv run --group faces python generate.py ...`"
@@ -133,10 +139,8 @@ def missing_face_dependencies() -> list[str]:
     Checked with :func:`importlib.util.find_spec` rather than by catching
     :exc:`ModuleNotFoundError` around construction: catching would also swallow an
     unrelated missing module raised from inside the detector and mislabel it as a missing
-    group (design D5). Importing nothing here keeps the runtime stdlib-only.
+    group (design D5). ``importlib`` is stdlib, so the runtime stays stdlib-only.
     """
-    import importlib.util
-
     return [m for m in _FACE_DEPENDENCY_MODULES if importlib.util.find_spec(m) is None]
 
 

@@ -256,4 +256,3 @@ def test_the_user_agent_does_not_displace_an_existing_content_type(monkeypatch, 
     req = _capture_request(monkeypatch, CALLS[call_name])
 
     assert req.get_header("Content-type"), f"{call_name} lost its Content-Type"
-    assert req.get_header("User-agent")

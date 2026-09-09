@@ -362,26 +362,17 @@ def test_omitting_seed_still_renders_reproducibly_within_a_run(tmp_path):
 
 
 @pytest.mark.spec("faces.cli-missing-dep-named")
-def test_missing_faces_group_names_the_group_not_the_transitive_module(monkeypatch, tmp_path):
+def test_missing_faces_group_names_the_group_not_the_transitive_module(
+    monkeypatch, tmp_path, capsys
+):
     # The bare failure is `ModuleNotFoundError: No module named 'cv2'`, which names a
     # transitive module and tells the operator nothing about how to fix it.
-    monkeypatch.setattr(cli, "missing_face_dependencies", lambda: ["cv2", "insightface"])
+    monkeypatch.setattr(cli, "missing_face_dependencies", lambda: ["cv2"])
 
     with pytest.raises(SystemExit) as excinfo:
         cli.main(["--prompt", "p", "--out", str(tmp_path)], transport=FakeComfyClient())
 
     assert excinfo.value.code != 0
-
-
-@pytest.mark.spec("faces.cli-missing-dep-named")
-def test_missing_faces_group_message_names_the_group_and_the_invocation(
-    monkeypatch, tmp_path, capsys
-):
-    monkeypatch.setattr(cli, "missing_face_dependencies", lambda: ["cv2"])
-
-    with pytest.raises(SystemExit):
-        cli.main(["--prompt", "p", "--out", str(tmp_path)], transport=FakeComfyClient())
-
     message = capsys.readouterr().err
     assert "faces" in message
     assert "--group faces" in message

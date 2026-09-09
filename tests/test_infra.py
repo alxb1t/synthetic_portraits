@@ -95,18 +95,6 @@ def test_dockerfile_pins_face_and_detailer_deps_for_reproducible_builds():
         assert "-c /opt/constraints.txt" in ln, ln
 
 
-@pytest.mark.spec("pod.constraints-fully-pinned")
-def test_constraints_file_pins_every_line_exactly():
-    # Every non-comment line is an exact `name==version` pin (no floating specifiers), and
-    # no URL/VCS requirement (pip forbids those in a constraints file).
-    lines = CONSTRAINTS.read_text().splitlines()
-    pins = [ln.strip() for ln in lines if ln.strip() and not ln.lstrip().startswith("#")]
-    assert pins, "expected version pins"
-    for pin in pins:
-        assert re.fullmatch(r"[A-Za-z0-9._-]+==[A-Za-z0-9._+!-]+", pin), pin
-    assert not any(" @ " in pin for pin in pins), "no URL/VCS requirements in constraints"
-
-
 def _constraint_pins() -> dict[str, str]:
     # `name==version` -> {name: version}, lowercased; comments and blanks dropped.
     pins: dict[str, str] = {}
@@ -121,6 +109,17 @@ def _constraint_pins() -> dict[str, str]:
 
 def _major(version: str) -> int:
     return int(version.split(".")[0])
+
+
+@pytest.mark.spec("pod.constraints-fully-pinned")
+def test_constraints_file_pins_every_line_exactly():
+    # Every non-comment line is an exact `name==version` pin (no floating specifiers), and
+    # no URL/VCS requirement (pip forbids those in a constraints file).
+    pins = [f"{name}=={version}" for name, version in _constraint_pins().items()]
+    assert pins, "expected version pins"
+    for pin in pins:
+        assert re.fullmatch(r"[A-Za-z0-9._-]+==[A-Za-z0-9._+!-]+", pin), pin
+    assert not any(" @ " in pin for pin in pins), "no URL/VCS requirements in constraints"
 
 
 @pytest.mark.spec("pod.opencv-pins-agree")
@@ -343,9 +342,9 @@ def _up_payload_ports(**env: str) -> list[str]:
     The heredoc is executed rather than pattern-matched, so this asserts what the script
     actually sends to the provider rather than what its source appears to say.
     """
-    text = UP.read_text()
-    start = text.index("python3 <<'PY'") + len("python3 <<'PY'")
-    snippet = text[start : text.index("\nPY\n", start)]
+    match = re.search(r"python3 <<'PY'\n(.*?)\nPY\n", UP.read_text(), re.S)
+    assert match, "up.sh no longer contains the payload-builder heredoc"
+    snippet = match.group(1)
     base = {
         "RUNPOD_NAME": "test-pod",
         "RUNPOD_IMG": "example/image:latest",
@@ -406,7 +405,15 @@ def test_up_tears_the_pod_down_when_readiness_expires():
 
     # Must be an INVOCATION, not a mention. up.sh already prints "tear down with:
     # infra/down.sh" as advice, and advice does not stop billing.
-    assert re.search(r'^\s*"\$\{SCRIPT_DIR\}/down\.sh"', text, re.M), (
-        "expiry must execute down.sh, not merely print it"
+    #
+    # The invocation lives in an EXIT trap rather than only in the timeout branch: the
+    # deadline is one way to exit with a live pod, but a failed curl under `set -e`, a
+    # parse error or a Ctrl-C are others, and all of them bill. One trap covers the class.
+    trap_line = next(
+        (ln for ln in text.splitlines() if ln.startswith("trap ") and "EXIT" in ln), ""
     )
+    assert trap_line, "up.sh installs no EXIT trap, so an abnormal exit leaves a pod billing"
+    assert "down.sh" in trap_line, "the EXIT trap must execute down.sh"
+    assert 'rc" -eq 0' in trap_line, "the trap must not tear down a pod on a successful exit"
+    assert "trap - EXIT" in text, "the success path must hand the pod over, not tear it down"
     assert "DELETE" not in text, "up.sh must not hand-roll its own delete"
