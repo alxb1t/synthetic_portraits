@@ -158,15 +158,32 @@ proxy_ready=0
 ready_by=$((SECONDS + deadline_secs))
 while [ "$SECONDS" -lt "$ready_by" ]; do
     pod=$(curl -sS -m 30 --connect-timeout 10 "${API}/pods?id=${pod_id}" -H "Authorization: Bearer ${RUNPOD_API_KEY}")
-    read -r public_ip ssh_port <<EOF2
+    read -r public_ip ssh_port pod_status <<EOF2
 $(printf '%s' "$pod" | python3 -c '
 import sys, json
 d = json.load(sys.stdin)
 d = d[0] if isinstance(d, list) else d
 pm = d.get("portMappings") or {}
-print(d.get("publicIp") or "-", pm.get("22", "-"))
-' 2>/dev/null || echo "- -")
+print(d.get("publicIp") or "-", pm.get("22", "-"), d.get("status") or "-")
+' 2>/dev/null || echo "- - -")
 EOF2
+
+    # A container that died is not a container still starting. Measured 2026-09-10: three
+    # pods whose image could not be pulled sat at EXITED within seconds while this loop,
+    # reading only publicIp and portMappings, waited out its full deadline on each.
+    #
+    # Fail-OPEN by design: `status` is confirmed on GET /pods/{id}, but this is the ?id=
+    # query form and that it carries the field is unproven. Only an explicit terminal
+    # state aborts; anything else — including no status at all — keeps waiting exactly as
+    # before, so this cannot tear down a pod that would have come up. Exiting here is an
+    # exit, which is the EXIT trap, which is the teardown.
+    case "$pod_status" in
+        EXITED | TERMINATED)
+            echo "pod ${pod_id} reached ${pod_status} — the container is not running." >&2
+            echo "Most often the image could not be pulled; check the tag exists." >&2
+            exit 1
+            ;;
+    esac
     echo "  [${SECONDS}s/${deadline_secs}s] ip=${public_ip} ssh_port=${ssh_port}"
     if [ "$public_ip" != "-" ] && [ "$ssh_port" != "-" ]; then
         break

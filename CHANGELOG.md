@@ -22,6 +22,20 @@ files and the annotated tag are one line — they agree, or the release halts.
 
 ### Fixed
 
+- **`up.sh` fails fast when the container is dead instead of waiting out the deadline.** The readiness
+  loop read only `publicIp` and `portMappings`, so a container that exited seconds after start looked
+  exactly like one still coming up — three such pods each burned the full deadline. The same response
+  carries the status; the loop now aborts on `EXITED`/`TERMINATED` through the EXIT trap. Fail-open:
+  an absent status still means "keep waiting", so this cannot tear down a pod that would have come up.
+
+- **`scripts/check_face.py` runs as documented again.** This is a virtual project
+  (`[tool.uv] package = false`), so the package is never installed into the venv, and Python puts a
+  script's own directory on `sys.path` rather than the repo root. That became fatal when the pinned
+  antelopev2 staging import was added on 2026-08-10, and
+  `uv run --group faces scripts/check_face.py …` has raised `ModuleNotFoundError` ever since — the
+  unit tests never saw it because they inject a fake detector. The script now puts the repo root on
+  `sys.path` itself.
+
 - **`build-image` no longer deletes the image the pod pulls.** `latest` is tagged only on the default
   branch, but the "keep only the newest version" prune ran on every push — so running the workflow
   against a feature branch pushed a `sha-` tag and then deleted the only `latest` in the registry. Every

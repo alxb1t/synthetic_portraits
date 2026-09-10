@@ -237,6 +237,41 @@ publish itself as the image every pod pulls, which is worse than an empty regist
 *Alternative considered: drop the prune.* Rejected — GHCR storage is the reason it exists, and gated
 on `main` it is correct as written.
 
+### D10 — Two defects the smoke test found, fixed where they are, not where they showed
+
+Both surfaced on 2026-09-10 during the v0.4 smoke test, and neither was reachable by the gate.
+
+**Readiness is blind to a dead container.** The loop reads `publicIp` and `portMappings`, so a
+container that exited at second 5 is indistinguishable from one still starting. Three pods sat at
+`EXITED` while it waited out the full deadline on each. The status is in the same response the loop
+already parses, so it now carries a third field and aborts on `EXITED`/`TERMINATED` — an exit, which
+is the EXIT trap, which is the teardown.
+
+This is **fail-open on purpose.** `status` is confirmed on `GET /pods/{id}`; the loop calls the `?id=`
+query form, and that it carries the field is *not* proven here. Only an explicit terminal state
+aborts; an absent status keeps waiting exactly as before. A parse test cannot prove what the provider
+returns, and the test says so rather than implying otherwise — which is the same trap D9 records, one
+layer down: a green check that verifies the code and not the thing.
+
+**`check_face.py` could not run as documented.** `[tool.uv] package = false` makes this a virtual
+project, so `synthetic_portraits` is never installed into the venv; `pytest` supplies the repo root on
+`sys.path`, but Python gives a script under `scripts/` its own directory instead. Harmless until
+`422fa03` (2026-08-10, security S3) added `from synthetic_portraits.faces import ensure_antelopev2`
+inside the detector factory — after which `uv run --group faces scripts/check_face.py` raised
+`ModuleNotFoundError`. `uv run` is not the fix: it execs Python, and Python chooses `sys.path[0]`. The
+script prepends the repo root itself.
+
+The unit tests never caught it because they inject a fake detector and never reach that import — the
+seam that keeps the suite offline is also the seam that hid the break. The new guard executes the
+script with `sys.path[0]` set to `scripts/` from a foreign cwd, which is what Python does, so it fails
+without needing insightface or a network.
+
+*Alternative considered: `[tool.uv] package = true`.* Rejected — installing the package to fix one
+script's import changes how every command in the repo resolves it, for a two-line problem.
+
+*Alternative considered: document `python -m`.* Rejected — it needs `scripts/__init__.py` and would
+silently break the invocation already in `README.md` and this script's own docstring.
+
 ## Risks / Trade-offs
 
 - **The consistency guard passes while a different contradiction ships.** → Accepted and stated in the

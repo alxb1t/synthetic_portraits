@@ -26,6 +26,7 @@ that cannot run. Phase 5 is the only phase that touches money.
 - [x] 6 — Readiness polls the access path in use (added after phase 5; found in operation)
 - [x] 7 — The two billing windows the deadline does not cover (added after converge)
 - [x] 8 — `build-image` no longer deletes the image the pod pulls (added after the smoke test)
+- [x] 9 — Fail fast on a dead container; `check_face.py` runs as documented (added after the smoke test)
 
 ---
 
@@ -204,3 +205,28 @@ registry, so `up.sh`'s default image reference stopped resolving.
 - [ ] 8.4 Republish `latest`. The gate cannot prove this — it needs a `build-image` run on `main`, so it
       lands with the merge rather than on this branch. Until then `up.sh` needs an explicit
       `RUNPOD_IMAGE=...:sha-<commit>`. **Open.**
+
+## 9. Fail fast on a dead container; `check_face.py` runs as documented
+
+Design D10. **Unplanned**: both found by the v0.4 smoke test on 2026-09-10, after converge. Neither is
+reachable by the gate as it stood — one needs a live provider response, the other needs the script run
+the way a human runs it.
+
+- [x] 9.1 Add a failing guard to `tests/test_infra.py`, marked
+      `spec("gpu-pod-provisioning.pod.up-fails-fast-on-a-dead-container")`: extract `up.sh`'s inline
+      readiness parser and **execute** it (as `_up_payload_ports` does) over a response carrying
+      `status: EXITED`, asserting the status survives. Verify: it fails — the parser discards it.
+- [x] 9.2 Add the companion fail-open guard: a response with **no** `status` must not read as a dead
+      container. Verify: it pins the behaviour that makes 9.3 safe to ship unproven.
+- [x] 9.3 Carry `status` out of the parser and abort on `EXITED`/`TERMINATED` in `infra/up.sh`, via
+      `exit 1` so the EXIT trap tears down — never a hand-rolled DELETE. Verify: 9.1-9.2 pass;
+      `bash -n infra/up.sh` exits 0; the existing teardown scenarios still hold.
+- [x] 9.4 Add a failing guard marked `spec("face-detectability.faces.check-face-runs-as-documented")`:
+      run `check_face.py` with `sys.path[0]` set to `scripts/` from a foreign cwd — what Python does
+      for a script — and require `synthetic_portraits` to import. Verify: it fails with the production
+      `ModuleNotFoundError`, and needs neither insightface nor a network.
+- [x] 9.5 Prepend the repo root to `sys.path` in `scripts/check_face.py`. Verify: 9.4 passes, and
+      `uv run --group faces scripts/check_face.py <img>` runs verbatim with no `PYTHONPATH` — confirmed
+      against the smoke-test output, 1/1 images with exactly one detectable face.
+- [x] 9.6 `CHANGELOG.md` entry. Verify: `make gate` is green and `openspec validate
+      0004-restore-image-build-and-pod-access --strict` is valid, then commit.

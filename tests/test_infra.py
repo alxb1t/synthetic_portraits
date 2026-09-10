@@ -9,10 +9,12 @@ Docker daemon) — ``.github/workflows/build-image.yml`` builds the image for re
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -25,6 +27,7 @@ START = REPO_ROOT / "infra" / "start.sh"
 UP = REPO_ROOT / "infra" / "up.sh"
 DOWN = REPO_ROOT / "infra" / "down.sh"
 BUILD_IMAGE = REPO_ROOT / ".github" / "workflows" / "build-image.yml"
+CHECK_FACE = REPO_ROOT / "scripts" / "check_face.py"
 
 SHELL_SCRIPTS = [DOWNLOAD, START, UP, DOWN]
 
@@ -539,3 +542,93 @@ def test_the_image_the_pod_pulls_by_default_is_the_one_the_workflow_tags():
     assert ":latest}" in up or ':latest"' in up or ":latest" in up, (
         "up.sh no longer defaults to :latest — retire this pairing deliberately"
     )
+
+
+# --- the readiness loop sees a dead container (change 0004, D10) -------------
+
+
+def _up_readiness_fields(pod_json: str) -> list[str]:
+    """Run up.sh's readiness parser over one provider response; return its fields.
+
+    Executed rather than pattern-matched, like ``_up_payload_ports`` — this asserts what
+    the loop actually reads out of the response, not what its source appears to say.
+    """
+    match = re.search(r"python3 -c '\n(import sys, json\n.*?)\n'", UP.read_text(), re.S)
+    assert match, "up.sh no longer contains the inline readiness parser"
+    proc = subprocess.run(
+        [sys.executable, "-c", match.group(1)],
+        input=pod_json,
+        env={"PATH": os.environ["PATH"]},
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return proc.stdout.split()
+
+
+@pytest.mark.spec("pod.up-fails-fast-on-a-dead-container")
+def test_the_readiness_parser_reports_the_container_status():
+    # Measured 2026-09-10: three pods whose image could not be pulled sat at EXITED within
+    # seconds, and up.sh waited out its FULL deadline on each — it reads only publicIp and
+    # portMappings, so a container that died at second 5 looks exactly like one still
+    # starting. The status is in the same response the loop already parses.
+    fields = _up_readiness_fields('{"publicIp": null, "portMappings": null, "status": "EXITED"}')
+
+    assert "EXITED" in fields, "the readiness parser discards the container status"
+
+
+@pytest.mark.spec("pod.up-fails-fast-on-a-dead-container")
+def test_a_missing_status_field_is_not_treated_as_a_dead_container():
+    # Fail-open on purpose. `status` is confirmed on GET /pods/{id}; this loop calls the
+    # ?id= QUERY form, and that it carries the field is not proven here — a grep or a
+    # parse test cannot prove what the provider returns. So an absent status must read as
+    # "keep waiting", exactly as today, and only an explicit terminal state aborts. That
+    # way shipping this cannot regress a pod that would otherwise have come up.
+    fields = _up_readiness_fields('{"publicIp": null, "portMappings": null}')
+
+    assert "EXITED" not in fields and "TERMINATED" not in fields
+
+
+@pytest.mark.spec("pod.up-fails-fast-on-a-dead-container")
+def test_up_aborts_on_a_terminal_container_status():
+    # Aborting means exit under `set -e`, which is an exit, which is the EXIT trap — so
+    # the dead pod is torn down rather than left billing out the rest of the deadline.
+    code = [ln for ln in UP.read_text().splitlines() if not ln.strip().startswith("#")]
+    text = "\n".join(code)
+
+    assert "EXITED" in text and "TERMINATED" in text, (
+        "up.sh does not recognise a terminal container status"
+    )
+    assert "DELETE" not in text, "up.sh must still not hand-roll its own delete"
+
+
+# --- check_face.py runs as documented (change 0004, D10) ---------------------
+
+
+@pytest.mark.spec("faces.check-face-runs-as-documented")
+def test_check_face_can_import_the_package_when_run_as_a_script():
+    # `python scripts/check_face.py` puts scripts/ on sys.path, NOT the repo root, and
+    # `[tool.uv] package = false` means the package is never installed into the venv —
+    # so the `from synthetic_portraits.faces import ensure_antelopev2` that 422fa03 added
+    # for security S3 cannot resolve. The documented invocation has been broken since
+    # 2026-08-10; the unit tests never caught it because they inject a fake detector and
+    # never reach that import.
+    #
+    # sys.path[0] = scripts/ and a foreign cwd together reproduce exactly what Python does
+    # for a script under scripts/, with no chance of the working directory rescuing it.
+    code = (
+        "import sys; sys.path.insert(0, sys.argv[1]); "
+        "import check_face; import synthetic_portraits; print('ok')"
+    )
+    proc = subprocess.run(
+        [sys.executable, "-c", code, str(CHECK_FACE.parent)],
+        cwd=tempfile.gettempdir(),
+        env={"PATH": os.environ["PATH"]},
+        capture_output=True,
+        text=True,
+    )
+
+    assert proc.returncode == 0, (
+        f"check_face.py cannot import the package when run as a script: {proc.stderr}"
+    )
+    assert "ok" in proc.stdout
