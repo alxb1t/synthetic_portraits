@@ -99,6 +99,22 @@ print(json.dumps(body))
 PY
 )
 
+# The one window no teardown trap can cover: from here until an id is in hand, the
+# provider may have created the pod while we never learn its name for it — so there is
+# nothing to tear down BY, and .pod_id is absent, so down.sh has no target either.
+# Saying so is the whole mitigation, and it has to be said on every way out of the
+# window: a curl that fails in transport (28/56), a response we cannot parse, and a
+# Ctrl-C. The first and last both bypass the parse branch below — one via `set -e` at
+# the assignment, one via the default signal disposition — so the warning lives in a
+# function and a signal trap is installed BEFORE the call, not after it.
+warn_may_exist() {
+    echo "WARNING: a pod may have been created anyway — this failed while reading the" >&2
+    echo "         id, not necessarily before the pod existed. Check the RunPod console" >&2
+    echo "         for '${POD_NAME}' and delete it, or it bills unattended." >&2
+}
+trap 'warn_may_exist; exit 130' INT
+trap 'warn_may_exist; exit 143' TERM
+
 echo "creating pod '${POD_NAME}' (${GPU_TYPE}) — this STARTS per-second billing…"
 # --max-time on every provider call, not just the proxy probe: curl has no default
 # transfer timeout, and the readiness deadline below is only tested BETWEEN iterations.
@@ -106,22 +122,25 @@ echo "creating pod '${POD_NAME}' (${GPU_TYPE}) — this STARTS per-second billin
 # and the EXIT trap cannot help because the script is not exiting — the pod simply bills
 # for the length of the stall. A timed-out curl fails under `set -e` instead, which is
 # an exit, which is the trap.
-response=$(curl -sS -m 30 --connect-timeout 10 -X POST "${API}/pods" \
+# `if !` rather than a bare assignment: under `set -e` a non-zero curl exits the script
+# AT the assignment, which would skip the warning below entirely — and a timeout is the
+# likeliest way a create call fails now that one is set.
+if ! response=$(curl -sS -m 30 --connect-timeout 10 -X POST "${API}/pods" \
     -H "Authorization: Bearer ${RUNPOD_API_KEY}" \
     -H "Content-Type: application/json" \
-    -d "${payload}")
+    -d "${payload}"); then
+    echo "the pod creation request failed before a response could be read." >&2
+    warn_may_exist
+    exit 1
+fi
 
 pod_id=$(printf '%s' "$response" | python3 -c 'import sys, json; d=json.load(sys.stdin); d=d[0] if isinstance(d, list) else d; print(d.get("id", ""))' 2>/dev/null || true)
 if [ -z "$pod_id" ]; then
-    # The one window the EXIT trap below cannot cover: the provider may have created
-    # the pod and only the id failed to reach us, so there is nothing to tear down by.
-    # Saying so is the whole mitigation — .pod_id is absent, so down.sh has no target,
-    # and an operator who reads "failed" as "nothing was created" leaves it billing.
+    # The response arrived but carries no id: the provider may still have created the
+    # pod, so an operator who reads "failed" as "nothing was created" leaves it billing.
     echo "pod creation failed:" >&2
     printf '%s\n' "$response" >&2
-    echo "WARNING: a pod may have been created anyway — this failed while reading the" >&2
-    echo "         id, not necessarily before the pod existed. Check the RunPod console" >&2
-    echo "         for '${POD_NAME}' and delete it, or it bills unattended." >&2
+    warn_may_exist
     exit 1
 fi
 printf '%s' "$pod_id" > "$STATE_FILE"
@@ -164,7 +183,7 @@ import sys, json
 d = json.load(sys.stdin)
 d = d[0] if isinstance(d, list) else d
 pm = d.get("portMappings") or {}
-print(d.get("publicIp") or "-", pm.get("22", "-"), d.get("status") or "-")
+print(d.get("publicIp") or "-", pm.get("22", "-"), d.get("desiredStatus") or d.get("status") or "-")
 ' 2>/dev/null || echo "- - -")
 EOF2
 
@@ -172,11 +191,15 @@ EOF2
     # pods whose image could not be pulled sat at EXITED within seconds while this loop,
     # reading only publicIp and portMappings, waited out its full deadline on each.
     #
-    # Fail-OPEN by design: `status` is confirmed on GET /pods/{id}, but this is the ?id=
-    # query form and that it carries the field is unproven. Only an explicit terminal
-    # state aborts; anything else — including no status at all — keeps waiting exactly as
-    # before, so this cannot tear down a pod that would have come up. Exiting here is an
-    # exit, which is the EXIT trap, which is the teardown.
+    # The field is `desiredStatus`: the v1 OpenAPI document at rest.runpod.io publishes a
+    # Pod schema of 34 properties with `desiredStatus` (enum RUNNING|EXITED|TERMINATED)
+    # and no `status` at all. `status` is kept only as a tolerated fallback.
+    #
+    # Fail-OPEN by design, and still UNVERIFIED against a live pod: a parse test cannot
+    # prove what the provider sends. Only an explicit terminal state aborts; anything
+    # else — including no status at all — keeps waiting exactly as before, so this cannot
+    # tear down a pod that would have come up. Exiting here is an exit, which is the EXIT
+    # trap, which is the teardown.
     case "$pod_status" in
         EXITED | TERMINATED)
             echo "pod ${pod_id} reached ${pod_status} — the container is not running." >&2

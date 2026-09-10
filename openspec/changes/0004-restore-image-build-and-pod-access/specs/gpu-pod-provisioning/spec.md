@@ -70,6 +70,72 @@ nothing the extra time can change: it tears down a pod that was, in fact, reacha
 - **Key:** `pod.up-polls-the-path-in-use`
 - **Layers:** structural
 
+### Requirement: A create call that yields no pod identifier says a pod may exist
+
+Creating a pod is the moment billing starts, and the identifier is what makes it stoppable. Between the
+request leaving and an identifier being in hand there is a window no teardown can cover: the provider may
+have created the pod while the client never learns its name for it, so there is nothing to destroy by and
+no recorded identifier for the down script to read.
+
+Every exit from that window — a request that fails in transport, a response carrying no identifier, and an
+interrupt — SHALL therefore warn that a pod may nonetheless exist and name it, so the operator knows to
+check the provider's console. Reporting only that creation "failed" is not sufficient: it reads as
+"nothing was created", and an unattended pod bills until someone looks.
+
+#### Scenario: A create call that yields no identifier warns that a pod may exist
+
+- **WHEN** the up script's create call fails to produce a pod identifier — whether the call itself fails,
+  the response carries no identifier, or the script is interrupted mid-request
+- **THEN** it exits non-zero having warned that a pod may have been created anyway, naming the pod so the
+  provider's console can be checked
+- **Key:** `pod.up-warns-when-the-id-never-arrives`
+- **Layers:** structural
+
+### Requirement: Readiness aborts when the container is not running
+
+A container that has died is not a container still starting. Waiting for readiness SHALL therefore read
+the container's status out of the response it already fetches, and an explicitly terminal status SHALL end
+the wait immediately, tearing the pod down by the same path the deadline uses rather than billing out the
+rest of the deadline for a container that will never come up.
+
+The status SHALL be read under the name the provider's published API schema defines. This check SHALL
+fail **open**: any status that is not explicitly terminal — including no status at all — SHALL keep
+waiting exactly as it would without this requirement, so a pod that would have become reachable is never
+destroyed by it.
+
+#### Scenario: A terminal container status ends the wait instead of billing it out
+
+- **WHEN** the readiness response reports the container in a terminal state
+- **THEN** the up script stops waiting and exits non-zero, so the pod is torn down, and it says the
+  container is not running and that the image tag is the usual cause
+- **AND** a response with no status keeps waiting, so the check cannot destroy a pod that would have
+  become reachable
+- **Key:** `pod.up-fails-fast-on-a-dead-container`
+- **Layers:** structural
+
+### Requirement: Publishing the image never deletes the image a pod pulls
+
+The image workflow both publishes tags and prunes old versions from the registry. Pruning SHALL be
+confined to the branch that can also republish what it deletes: off that branch a run deletes a tag it
+cannot restore, and every pod created from the default image reference then fails to pull.
+
+The image reference the up script pulls by default SHALL be a tag that workflow publishes, so the two
+cannot drift apart unnoticed.
+
+#### Scenario: The registry prune runs only on the default branch
+
+- **WHEN** the image workflow runs on any branch other than the default one
+- **THEN** the destructive prune step does not run, so the tag it could not republish survives
+- **Key:** `pod.image-prune-is-default-branch-only`
+- **Layers:** structural
+
+#### Scenario: The pod's default image reference is a tag the workflow publishes
+
+- **WHEN** the image workflow and the up script are read together
+- **THEN** the tag the workflow publishes is the tag the up script pulls when no image is specified
+- **Key:** `pod.image-branch-runs-keep-latest`
+- **Layers:** structural
+
 ## MODIFIED Requirements
 
 ### Requirement: Pods are created and destroyed by script, and the pod identifier is never committed

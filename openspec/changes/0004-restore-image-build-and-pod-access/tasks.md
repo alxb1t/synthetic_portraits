@@ -117,8 +117,9 @@ The only phase that leaves the repository. It spends no GPU: `build-image` is CI
       `scripts/check_face.py`; that the SSH tunnel is the only supported render path; and that
       `RUNPOD_EXPOSE_HTTP` publishes a public, unauthenticated endpoint. Verify: `make gate` is green.
 - [x] 5.2 Confirm every scenario `Key:` introduced by this change is bound to a marked test. Verify:
-      `uv run pytest -q -m spec` collects tests for all eleven new keys (ten at the time 5.2 was first
-      run; phase 6 added `pod.up-polls-the-path-in-use` afterwards).
+      `uv run pytest -q -m spec` collects tests for all sixteen new keys (ten at the time 5.2 was first
+      run; phase 6 added `pod.up-polls-the-path-in-use` afterwards, and converge round 2's task 9.8 added
+      the five keys phases 7-9 had bound with markers but never declared).
 - [x] 5.3 Run the real image build against this branch — `gh workflow run build-image.yml --ref
       <branch>`, then `gh run watch`. Verify: the run **succeeds**, which is the first green
       `build-image` since 2026-08-10 and the proof that D1 resolved the contradiction. **This is the
@@ -194,6 +195,15 @@ remaining converge findings are exported, not fixed here.
 - [x] 7.6 Record the decision as **D8** in `design.md` and add the `CHANGELOG.md` entry. Verify: `make
       gate` is green and `openspec validate 0004-restore-image-build-and-pod-access --strict` is valid,
       then commit.
+- [x] 7.7 Fix converge round 2 finding **S1**: under `set -euo pipefail` the warning was unreachable from
+      the two exits 7.4 did not cover — a `curl` that fails in transport (which 7.2's `-m 30` made
+      likelier) exits at the assignment, and a `Ctrl-C` lands before any trap is installed. Move the
+      warning into `warn_may_exist`, check the create call with `if ! response=$(...)`, and install an
+      `INT`/`TERM` trap *before* the request. Test-first: two guards that **run** a copy of `up.sh`
+      against a stub `curl` (exit 28, and one that signals its own process group) and require the warning
+      on stderr — offline, no provider call, no pod. 7.3's source-text guard is rewritten as a third
+      execution guard over a response with no id, since asserting the warning's text inside a branch
+      passes against an unreachable branch. Verify: all three fail against `80960dd`, then pass.
 
 ## 8. `build-image` no longer deletes the image the pod pulls
 
@@ -216,8 +226,11 @@ registry, so `up.sh`'s default image reference stopped resolving.
       `main`. The deferral, its two justifications and the exact post-merge check are written into
       `design.md`'s Migration Plan rather than left as an unticked box with no record. Until that run
       lands, `up.sh` needs an explicit `RUNPOD_IMAGE=...:sha-<commit>` — which is what every pod in the
-      v0.4 smoke test and the OpenPose set used. D10's terminal-status check makes the un-overridden
-      failure abort in ~20 s naming the image, so the deferred state is legible rather than silent.
+      v0.4 smoke test and the OpenPose set used. D10's terminal-status check is *intended* to make the
+      un-overridden failure abort in ~20 s naming the image rather than waiting out the deadline — that
+      is unverified against a live pod (converge round 2, finding R2: the check read `status`, a field
+      the provider's published `Pod` schema does not have; it now reads `desiredStatus`). The workaround,
+      not the abort, is what carries this deferral.
 
 ## 9. Fail fast on a dead container; `check_face.py` runs as documented
 
@@ -243,3 +256,20 @@ the way a human runs it.
       against the smoke-test output, 1/1 images with exactly one detectable face.
 - [x] 9.6 `CHANGELOG.md` entry. Verify: `make gate` is green and `openspec validate
       0004-restore-image-build-and-pod-access --strict` is valid, then commit.
+- [x] 9.7 Fix converge round 2 finding **R2**: 9.3 read `d.get("status")`, but the v1 OpenAPI document at
+      `https://rest.runpod.io/v1` defines `components.schemas.Pod` with 34 properties — `desiredStatus`
+      (`enum: RUNNING, EXITED, TERMINATED`) present, `status` absent — so the abort could never fire.
+      Read `desiredStatus` with `status` kept as a tolerated fallback, and add a parse guard over a
+      response shaped like the documented `Pod` (9.2's fail-open guard stays). Then correct the record
+      rather than the code alone: D10 cites the OpenAPI schema instead of a "confirmed on
+      `GET /pods/{id}`" claim, and `CHANGELOG.md`, D10's Migration Plan and task 8.4 all say plainly that
+      the abort is **unverified against a live pod**. Verify: the new guard fails against `80960dd` for
+      that reason, then passes.
+- [x] 9.8 Fix converge round 2 finding **R1**: phases 8 and 9 bound four scenario keys with markers and
+      shipped no spec delta, and 7.3 reused `pod.up-tears-down-on-timeout` for a behaviour its scenario
+      does not describe. Add the missing requirements to the deltas — the create-window warning, the
+      terminal-status abort (whose text states the fail-open) and the prune/publish pairing under
+      `gpu-pod-provisioning`, the documented invocation under `face-detectability` — re-key the phase-7
+      guards to `pod.up-warns-when-the-id-never-arrives`, and update 5.2's count from eleven to sixteen.
+      Verify: `openspec validate 0004-restore-image-build-and-pod-access --strict` is valid and every new
+      key is collected by a marked test.

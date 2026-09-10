@@ -33,3 +33,22 @@ not after the pod is up and billing.
   stand-in and no test requires the group
 - **Key:** `faces.cli-injected-detector-skips-check`
 - **Layers:** unit
+
+### Requirement: The detectability check runs by its documented invocation
+
+The offline detectability check is a script, and a script is run the way its documentation says. Because
+this repository is a virtual project, its package is never installed into the environment, and running a
+file under a subdirectory puts that subdirectory — not the repository root — on the import path. The check
+SHALL therefore make the package importable itself, so the invocation written in the documentation works
+verbatim, with no environment variable and no change to how every other command resolves the package.
+
+This SHALL be verifiable offline: the failure is an import, so it is reachable without the optional
+face-detection dependency, without a model download and without a network.
+
+#### Scenario: The check imports the package when run as a script
+
+- **WHEN** the detectability check is executed as a file, with its own directory on the import path and
+  from an unrelated working directory — what the interpreter does for the documented invocation
+- **THEN** it imports the project's package successfully rather than raising a missing-module error
+- **Key:** `faces.check-face-runs-as-documented`
+- **Layers:** unit

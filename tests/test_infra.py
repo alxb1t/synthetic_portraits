@@ -406,23 +406,105 @@ def test_every_provider_call_is_bounded_against_a_hung_connection():
             )
 
 
-@pytest.mark.spec("pod.up-tears-down-on-timeout")
-def test_up_says_a_pod_may_exist_when_the_id_cannot_be_read():
-    # The EXIT trap is installed after the create response is parsed, so one window is not
-    # covered by it: the provider creates the pod but the client never sees a usable id —
-    # curl interrupted after creation, an unexpected response shape, a parse failure. The
-    # script exits 1 and the operator concludes nothing was created, while .pod_id is absent
-    # so down.sh has nothing to delete and the pod bills until someone opens the console.
-    # The trap cannot cover it (there is no id to tear down), so the failure must be SAID.
-    text = UP.read_text()
-    branch = text.split('if [ -z "$pod_id" ]; then', 1)
-    assert len(branch) == 2, "up.sh no longer guards against an unreadable pod id"
-    branch = branch[1].split("\nfi\n", 1)[0]
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash not available")
+@pytest.mark.spec("pod.up-warns-when-the-id-never-arrives")
+def test_up_says_a_pod_may_exist_when_the_id_cannot_be_read(tmp_path: Path):
+    # The parse half of the window. The provider answers, but the body carries no usable
+    # id — an unexpected shape, a truncated body, an error object. The script exits 1 and
+    # the operator concludes nothing was created, while .pod_id is absent so down.sh has
+    # nothing to delete and the pod bills until someone opens the console. No trap can
+    # cover it (there is no id to tear down by), so the failure must be SAID.
+    #
+    # Run rather than grepped: an earlier version of this test sliced the source for the
+    # warning text inside the `[ -z "$pod_id" ]` branch, which says the warning was
+    # written, not that anything reaches it.
+    proc = _run_up_with_stub_curl(tmp_path, "#!/bin/sh\nprintf '%s' '{\"error\": \"nope\"}'\n")
 
-    assert "may have been created" in branch, (
-        "the unreadable-id path must warn that a pod may be live and billing"
+    assert proc.returncode != 0, "a create response with no id must not report success"
+    assert "may have been created" in proc.stderr, (
+        f"the unreadable-id path must warn that a pod may be live and billing; got: {proc.stderr!r}"
     )
-    assert "POD_NAME" in branch, "the warning must name the pod so the console can be checked"
+    assert "stub-pod-name" in proc.stderr, (
+        "the warning must name the pod so the console can be checked"
+    )
+
+
+def _run_up_with_stub_curl(tmp_path: Path, curl_body: str) -> subprocess.CompletedProcess[str]:
+    """Execute a copy of ``up.sh`` against a stub ``curl``; return the finished process.
+
+    Offline and creates nothing: the script is copied out of the repository so the run reads
+    no real ``.env`` and cannot write the real ``infra/.pod_id``, and ``curl`` is shadowed on
+    ``PATH``, so no provider is contacted. ``start_new_session`` gives the copy its own
+    process group, so a stub that signals its group reaches the script and nothing else.
+    """
+    infra = tmp_path / "infra"
+    infra.mkdir()
+    for script in (UP, DOWN):
+        copy = infra / script.name
+        copy.write_text(script.read_text())
+        copy.chmod(0o755)
+
+    stub_dir = tmp_path / "bin"
+    stub_dir.mkdir()
+    stub_curl = stub_dir / "curl"
+    stub_curl.write_text(curl_body)
+    stub_curl.chmod(0o755)
+
+    (tmp_path / "id_test.pub").write_text("ssh-ed25519 AAAA test\n")
+
+    return subprocess.run(
+        ["bash", str(infra / "up.sh")],
+        cwd=str(tmp_path),
+        env={
+            "PATH": f"{stub_dir}{os.pathsep}{os.environ['PATH']}",
+            "HOME": str(tmp_path),
+            "RUNPOD_API_KEY": "test-key",
+            "RUNPOD_NETWORK_VOLUME_ID": "test-volume",
+            "RUNPOD_SSH_KEY": str(tmp_path / "id_test"),
+            "RUNPOD_POD_NAME": "stub-pod-name",
+        },
+        capture_output=True,
+        text=True,
+        timeout=60,
+        start_new_session=True,
+    )
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash not available")
+@pytest.mark.spec("pod.up-warns-when-the-id-never-arrives")
+def test_up_warns_a_pod_may_exist_when_the_create_call_itself_fails(tmp_path: Path):
+    # The transport half of the same window, and the one the -m 30 timeout made likelier:
+    # under `set -euo pipefail` a curl that exits non-zero (28 timeout, 56 reset) fails the
+    # ASSIGNMENT, so the shell leaves at that line — in front of the `[ -z "$pod_id" ]`
+    # branch that carries the warning and in front of every trap. The provider may already
+    # have created the pod. Asserted by RUNNING the script against a stub curl that exits
+    # 28, because the warning's presence in the source proves only that it was written.
+    proc = _run_up_with_stub_curl(tmp_path, "#!/bin/sh\nexit 28\n")
+
+    assert proc.returncode != 0, "a failed create must not report success"
+    assert "may have been created" in proc.stderr, (
+        "a create call that fails in transport must warn that a pod may be live and "
+        f"billing; got: {proc.stderr!r}"
+    )
+    assert "stub-pod-name" in proc.stderr, (
+        "the warning must name the pod so the console can be checked"
+    )
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash not available")
+@pytest.mark.spec("pod.up-warns-when-the-id-never-arrives")
+def test_up_warns_a_pod_may_exist_when_the_create_call_is_interrupted(tmp_path: Path):
+    # The signal half. Ctrl-C during the create call is the same exposure with a person
+    # attached: the request may have reached the provider, and the teardown traps are not
+    # installed until the id is known. The stub signals its own process group, which
+    # start_new_session has made the script's, exactly as a terminal signals a foreground job.
+    proc = _run_up_with_stub_curl(tmp_path, "#!/bin/sh\nkill -INT 0\nsleep 5\n")
+
+    assert proc.returncode != 0, "an interrupted create must not report success"
+    assert "may have been created" in proc.stderr, (
+        "an interrupt during the create call must warn that a pod may be live and "
+        f"billing; got: {proc.stderr!r}"
+    )
 
 
 @pytest.mark.spec("pod.up-http-port-opt-in")
@@ -572,18 +654,39 @@ def test_the_readiness_parser_reports_the_container_status():
     # seconds, and up.sh waited out its FULL deadline on each — it reads only publicIp and
     # portMappings, so a container that died at second 5 looks exactly like one still
     # starting. The status is in the same response the loop already parses.
+    #
+    # `status` is the tolerated fallback spelling, kept because it costs one `or` and the
+    # documented field is asserted by its own test below.
     fields = _up_readiness_fields('{"publicIp": null, "portMappings": null, "status": "EXITED"}')
 
     assert "EXITED" in fields, "the readiness parser discards the container status"
 
 
 @pytest.mark.spec("pod.up-fails-fast-on-a-dead-container")
+def test_the_readiness_parser_reads_the_status_field_the_provider_documents():
+    # The field is `desiredStatus`, not `status`. RunPod's published OpenAPI document for
+    # https://rest.runpod.io/v1 — the exact server this script calls — defines
+    # components.schemas.Pod with 34 properties, among them `desiredStatus`
+    # (enum RUNNING|EXITED|TERMINATED, "the current expected status of a Pod"). There is no
+    # `status` property at all. A parser reading `status` therefore never sees a dead
+    # container in production, and fails open forever — the check exists but never fires.
+    fields = _up_readiness_fields(
+        '{"id": "abc", "desiredStatus": "EXITED", "publicIp": null, "portMappings": null}'
+    )
+
+    assert "EXITED" in fields, (
+        "the readiness parser reads a status field the provider's Pod schema does not have"
+    )
+
+
+@pytest.mark.spec("pod.up-fails-fast-on-a-dead-container")
 def test_a_missing_status_field_is_not_treated_as_a_dead_container():
-    # Fail-open on purpose. `status` is confirmed on GET /pods/{id}; this loop calls the
-    # ?id= QUERY form, and that it carries the field is not proven here — a grep or a
-    # parse test cannot prove what the provider returns. So an absent status must read as
-    # "keep waiting", exactly as today, and only an explicit terminal state aborts. That
-    # way shipping this cannot regress a pod that would otherwise have come up.
+    # Fail-open on purpose. The field name is now the one the provider's published Pod
+    # schema carries (`desiredStatus`), but no live pod has been observed through this
+    # loop and a parse test cannot prove what the provider returns. So an absent status
+    # must read as "keep waiting", exactly as before, and only an explicit terminal state
+    # aborts. That way shipping this unverified cannot regress a pod that would otherwise
+    # have come up.
     fields = _up_readiness_fields('{"publicIp": null, "portMappings": null}')
 
     assert "EXITED" not in fields and "TERMINATED" not in fields

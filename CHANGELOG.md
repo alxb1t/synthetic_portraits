@@ -22,11 +22,14 @@ files and the annotated tag are one line — they agree, or the release halts.
 
 ### Fixed
 
-- **`up.sh` fails fast when the container is dead instead of waiting out the deadline.** The readiness
-  loop read only `publicIp` and `portMappings`, so a container that exited seconds after start looked
-  exactly like one still coming up — three such pods each burned the full deadline. The same response
-  carries the status; the loop now aborts on `EXITED`/`TERMINATED` through the EXIT trap. Fail-open:
-  an absent status still means "keep waiting", so this cannot tear down a pod that would have come up.
+- **`up.sh` is meant to fail fast when the container is dead instead of waiting out the deadline.** The
+  readiness loop read only `publicIp` and `portMappings`, so a container that exited seconds after start
+  looked exactly like one still coming up — three such pods each burned the full deadline. The same
+  response carries the container's `desiredStatus` (the field the provider's published `Pod` schema
+  defines; an earlier cut of this fix read a `status` that does not exist there, so it could never have
+  fired), and the loop now aborts on `EXITED`/`TERMINATED` through the EXIT trap. **Not yet verified
+  against a live pod** — the offline tests exercise the parser, not the provider. Fail-open: an absent
+  status still means "keep waiting", so this cannot tear down a pod that would have come up.
 
 - **`scripts/check_face.py` runs as documented again.** This is a virtual project
   (`[tool.uv] package = false`), so the package is never installed into the venv, and Python puts a
@@ -57,7 +60,12 @@ files and the annotated tag are one line — they agree, or the release halts.
   server-side while the id never reaches the client, which leaves no `.pod_id` for `down.sh` to delete
   and is the one window in front of the EXIT trap that no trap can cover. The path printed "pod creation
   failed", which an operator reasonably reads as "nothing was created" — while a pod billed unattended.
-  It now warns explicitly and names the pod for a console check.
+  It now warns explicitly and names the pod for a console check — **on every way out of that window**,
+  not only the one where a response arrives. Under `set -euo pipefail` a `curl` that times out or is
+  interrupted failed the assignment, so the script left *at that line*, in front of the branch carrying
+  the warning and in front of every trap; adding a 30 s timeout to the create call made that the likelier
+  failure. The warning is now a function reached from a checked create call, and a signal trap is
+  installed before the request rather than after the id is known.
 
 - **Pod readiness now polls the route actually in use.** `RUNPOD_EXPOSE_HTTP=1` published the
   proxy port but the readiness loop still waited only for a public IP — so in the exact

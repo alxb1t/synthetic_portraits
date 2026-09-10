@@ -247,11 +247,24 @@ container that exited at second 5 is indistinguishable from one still starting. 
 already parses, so it now carries a third field and aborts on `EXITED`/`TERMINATED` — an exit, which
 is the EXIT trap, which is the teardown.
 
-This is **fail-open on purpose.** `status` is confirmed on `GET /pods/{id}`; the loop calls the `?id=`
-query form, and that it carries the field is *not* proven here. Only an explicit terminal state
-aborts; an absent status keeps waiting exactly as before. A parse test cannot prove what the provider
-returns, and the test says so rather than implying otherwise — which is the same trap D9 records, one
-layer down: a green check that verifies the code and not the thing.
+**The field is `desiredStatus`, not `status`** — corrected in converge round 2 (finding R2). The first
+version of this check read `status`, on the recollection that it was "confirmed on `GET /pods/{id}`".
+What was actually checked, and all that is claimed here, is the **published OpenAPI document** for
+`https://rest.runpod.io/v1` (the exact server `up.sh` calls): `components.schemas.Pod` has **34
+properties, `desiredStatus` among them** (`enum: RUNNING, EXITED, TERMINATED` — precisely the values
+this check matches on) and **no `status` property at all**. `status` is kept as a tolerated fallback
+because it costs one `or`. Read against the wrong name, the abort could never have fired in
+production: the parser would print `-` on every poll and the loop would wait out its full deadline,
+which is the behaviour this decision exists to remove.
+
+This is **fail-open on purpose, and still unverified against a live pod.** Only an explicit terminal
+state aborts; an absent status keeps waiting exactly as before, so shipping it unproven cannot regress
+a pod that would have come up. A parse test cannot prove what the provider *sends* — a schema is not a
+response — and the tests say so rather than implying otherwise. That is the same trap D9 records, one
+layer down: a green check that verifies the code and not the thing. The first round of this check was
+green against a field name the provider does not publish; correcting the name does not turn a schema
+read into a measurement, so every claim about the abort firing is written here as unverified until a
+live pod shows it.
 
 **`check_face.py` could not run as documented.** `[tool.uv] package = false` makes this a virtual
 project, so `synthetic_portraits` is never installed into the venv; `pytest` supplies the repo root on
@@ -306,16 +319,21 @@ No data migration. The sequence that matters is ordering, not state:
 workflow, but `:latest` is republished only by a `build-image` run on `main` — so between this release and
 that merge the registry holds `sha-` tags only, and `up.sh`'s default image reference does not resolve.
 
-Carried deliberately rather than worked around, on two grounds. The failure is now **fast and legible**:
-D10's terminal-status check aborts in roughly twenty seconds with "the container is not running / most
-often the image could not be pulled; check the tag exists", instead of waiting out a 420 s deadline and
-reporting a capacity problem it does not have. And the workaround is one variable —
+Carried deliberately rather than worked around, on one measured ground and one intended-but-unverified
+one. **Unverified:** D10's terminal-status check is *meant* to abort in roughly twenty seconds with "the
+container is not running / most often the image could not be pulled; check the tag exists", instead of
+waiting out the deadline and reporting a capacity problem it does not have. That has not been observed
+on a live pod. It read the wrong field until converge round 2 (R2), so what was measured was the
+un-aborted wait; the field now matches the provider's published schema, and the check remains fail-open,
+so the worst case is the pre-change behaviour. **Measured:** the workaround is one variable —
 `RUNPOD_IMAGE=ghcr.io/<owner>/synthetic_portraits:sha-<commit>` — which is what every pod in the v0.4
 smoke test and the OpenPose set actually used, successfully.
 
 **Post-merge, required before the next default-path pod:** confirm `build-image` ran on `main`, confirm
 `:latest` resolves in GHCR, and bring one pod up with no `RUNPOD_IMAGE` override. Task 8.4 records this;
-it is ticked as *deferred and recorded*, in the same way 5.4 was, not as done.
+it is ticked as *deferred and recorded*, in the same way 5.4 was, not as done. That run is also the first
+opportunity to **verify D10's terminal-status abort against a live pod** — bring one up on a tag that
+does not exist and confirm it aborts rather than waiting out the deadline.
 
 **Rollback:** revert the constraints commit. That restores a red build, so the meaningful rollback is
 forward — the pre-change state is an image that cannot render at all.
