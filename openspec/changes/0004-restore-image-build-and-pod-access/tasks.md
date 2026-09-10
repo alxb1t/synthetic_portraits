@@ -128,6 +128,15 @@ The only phase that leaves the repository. It spends no GPU: `build-image` is CI
       `ComfyUI-Impact-Subpack` and `ComfyUI_InstantID` are all present — the condition whose absence
       started this change. If no Docker daemon is available locally, record that this was deferred to the
       `/object_info` check in the migration plan rather than marking it done.
+
+      **Deferred to `/object_info`, and answered there on 2026-09-10.** No Docker daemon was
+      available locally, and by the time it was attempted the image had been pruned from the
+      registry (design D9), so there was nothing to pull. The v0.4 smoke test resolved it on a live
+      pod instead: `GET /object_info` returned 633 nodes including `FaceDetailer` and
+      `ImpactSimpleDetectorSEGS` (Impact Pack), `UltralyticsDetectorProvider` (Impact Subpack) and
+      `InstantIDModelLoader` / `ApplyInstantID` / `InstantIDFaceAnalysis` (InstantID). All three
+      packs present — the condition whose absence started this change is cleared. Converge finding
+      R6 asked for exactly this record.
 - [x] 5.5 `CHANGELOG.md`: close the `v0.4` entry. Verify: `make gate` is green, then commit.
 
 ## 6. Readiness polls the access path in use
@@ -202,9 +211,13 @@ registry, so `up.sh`'s default image reference stopped resolving.
       8.1's guards pass.
 - [x] 8.3 Record the decision as **D9** and add the `CHANGELOG.md` entry. Verify: `make gate` is green
       and `openspec validate 0004-restore-image-build-and-pod-access --strict` is valid, then commit.
-- [ ] 8.4 Republish `latest`. The gate cannot prove this — it needs a `build-image` run on `main`, so it
-      lands with the merge rather than on this branch. Until then `up.sh` needs an explicit
-      `RUNPOD_IMAGE=...:sha-<commit>`. **Open.**
+- [x] 8.4 Republish `latest`. **Deferred to the merge and recorded**, in the same way 5.4 was — the gate
+      cannot prove it and neither can this branch: `:latest` is republished only by a `build-image` run on
+      `main`. The deferral, its two justifications and the exact post-merge check are written into
+      `design.md`'s Migration Plan rather than left as an unticked box with no record. Until that run
+      lands, `up.sh` needs an explicit `RUNPOD_IMAGE=...:sha-<commit>` — which is what every pod in the
+      v0.4 smoke test and the OpenPose set used. D10's terminal-status check makes the un-overridden
+      failure abort in ~20 s naming the image, so the deferred state is legible rather than silent.
 
 ## 9. Fail fast on a dead container; `check_face.py` runs as documented
 

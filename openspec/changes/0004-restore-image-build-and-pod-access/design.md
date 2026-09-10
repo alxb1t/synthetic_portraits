@@ -300,6 +300,22 @@ No data migration. The sequence that matters is ordering, not state:
 3. Before the next real render, fetch the **full** `/object_info` and assert `UltralyticsDetectorProvider`
    and `FaceDetailer` are present. A per-node `GET /object_info/<NodeName>` returns 200 for absent nodes
    and proves nothing; this was measured on the failed 2026-09-09 session.
+   **Done 2026-09-10** on the v0.4 smoke test: 633 nodes, all three packs present (task 5.4 / finding R6).
+
+**Step 2 has not happened yet, and this branch cannot make it happen.** The prune fix (D9) corrects the
+workflow, but `:latest` is republished only by a `build-image` run on `main` — so between this release and
+that merge the registry holds `sha-` tags only, and `up.sh`'s default image reference does not resolve.
+
+Carried deliberately rather than worked around, on two grounds. The failure is now **fast and legible**:
+D10's terminal-status check aborts in roughly twenty seconds with "the container is not running / most
+often the image could not be pulled; check the tag exists", instead of waiting out a 420 s deadline and
+reporting a capacity problem it does not have. And the workaround is one variable —
+`RUNPOD_IMAGE=ghcr.io/<owner>/synthetic_portraits:sha-<commit>` — which is what every pod in the v0.4
+smoke test and the OpenPose set actually used, successfully.
+
+**Post-merge, required before the next default-path pod:** confirm `build-image` ran on `main`, confirm
+`:latest` resolves in GHCR, and bring one pod up with no `RUNPOD_IMAGE` override. Task 8.4 records this;
+it is ticked as *deferred and recorded*, in the same way 5.4 was, not as done.
 
 **Rollback:** revert the constraints commit. That restores a red build, so the meaningful rollback is
 forward — the pre-change state is an image that cannot render at all.
