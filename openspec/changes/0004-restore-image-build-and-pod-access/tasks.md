@@ -1,6 +1,8 @@
 # Tasks — 0004-restore-image-build-and-pod-access
 
-Five phases. Each is independently committable, ends on a **green gate** (`make gate`, run and never
+Five phases as planned, plus **phase 6**, which was not planned: the readiness defect it fixes was found
+in operation after phase 5 shipped, and it is recorded here rather than left as a commit with no task.
+Each phase is independently committable, ends on a **green gate** (`make gate`, run and never
 summarized), a `CHANGELOG.md` entry, a ticked `## Progress` box and **one** commit whose message ends
 with a `Change: 0004-restore-image-build-and-pod-access` trailer contiguous with any `Co-Authored-By:`
 line.
@@ -20,6 +22,7 @@ that cannot run. Phase 5 is the only phase that touches money.
 - [x] 3 — The CLI's early failure on a missing `faces` group
 - [x] 4 — `infra/up.sh`: bounded readiness, self-teardown, opt-in HTTP port
 - [x] 5 — Docs, spec binding, and the real image build
+- [x] 6 — Readiness polls the access path in use (added after phase 5; found in operation)
 
 ---
 
@@ -110,7 +113,8 @@ The only phase that leaves the repository. It spends no GPU: `build-image` is CI
       `scripts/check_face.py`; that the SSH tunnel is the only supported render path; and that
       `RUNPOD_EXPOSE_HTTP` publishes a public, unauthenticated endpoint. Verify: `make gate` is green.
 - [x] 5.2 Confirm every scenario `Key:` introduced by this change is bound to a marked test. Verify:
-      `uv run pytest -q -m spec` collects tests for all ten new keys.
+      `uv run pytest -q -m spec` collects tests for all eleven new keys (ten at the time 5.2 was first
+      run; phase 6 added `pod.up-polls-the-path-in-use` afterwards).
 - [x] 5.3 Run the real image build against this branch — `gh workflow run build-image.yml --ref
       <branch>`, then `gh run watch`. Verify: the run **succeeds**, which is the first green
       `build-image` since 2026-08-10 and the proof that D1 resolved the contradiction. **This is the
@@ -121,3 +125,31 @@ The only phase that leaves the repository. It spends no GPU: `build-image` is CI
       started this change. If no Docker daemon is available locally, record that this was deferred to the
       `/object_info` check in the migration plan rather than marking it done.
 - [x] 5.5 `CHANGELOG.md`: close the `v0.4` entry. Verify: `make gate` is green, then commit.
+
+## 6. Readiness polls the access path in use
+
+Design D7, which narrows D3. **Unplanned**: phases 1–5 were built and committed before this defect was
+found, in operation, on 2026-09-09/10 in EU-RO-1. `RUNPOD_EXPOSE_HTTP=1` published the proxy port and
+bought the longer deadline of D6, but the readiness loop still broke only on `publicIp` +
+`portMappings["22"]` — so in the exact condition the flag exists for, it waited *longer* for an address
+that would never arrive and then tore the pod down.
+
+- [x] 6.1 Add a failing regression guard to `tests/test_infra.py`, marked
+      `spec("gpu-pod-provisioning.pod.up-polls-the-path-in-use")`: with the HTTP port published, the
+      readiness loop probes the proxy route and records a proxy-ready state. Verify: it fails against the
+      pre-fix script — every assertion run against `0b3870c^`, not the file's prose. Commit `0b3870c`.
+- [x] 6.2 Probe `${PROXY_URL}/system_stats` in the readiness loop when `EXPOSE_HTTP=1`, and hand the pod
+      over on that route instead of tearing it down. `/system_stats`, not the bare host — the proxy
+      resolves long before ComfyUI is listening (D7). Verify: the guard passes; `bash -n infra/up.sh`
+      exits 0. Commit `0b3870c`.
+- [x] 6.3 Add the scenario `pod.up-polls-the-path-in-use` to the `gpu-pod-provisioning` delta, and update
+      5.2's count from ten new keys to eleven. Verify: `openspec validate
+      0004-restore-image-build-and-pod-access --strict` is valid.
+- [x] 6.4 `/simplify` pass over the fix. Verify: the rewritten guard fails on `0b3870c^` and passes on
+      the fix — the original asserted the fix's comment rather than its behaviour. Commit `063b60c`.
+- [x] 6.5 Record the decision. `design.md` gains **D7**; `proposal.md`'s non-goal and `.env.example` are
+      reworded so the decision record no longer states the reverse of what `up.sh` does. Verify: `make
+      gate` is green and `openspec validate --strict` is valid. (Converge round 1, finding R1.)
+- [x] 6.6 `CHANGELOG.md` entry — landed with 6.2 under `Fixed` ("Pod readiness now polls the route
+      actually in use"), which is where the EU-RO-1 measurement was first written down. Verify: `make
+      gate` is green, then commit.

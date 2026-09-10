@@ -94,8 +94,10 @@ publishes ComfyUI at `https://<pod id>-8188.proxy.runpod.net`, which needs no pu
 
 It is **off by default and deliberately so**: that URL is public and unauthenticated — RunPod's
 docs say the pod id gives "only obscurity, not security" — and ComfyUI has no auth of its own.
-It is also **not render-tested**; treat it as a diagnostic channel and tear the pod down
-promptly. Requests now carry an explicit `User-Agent`, without which Cloudflare rejects the
+When the provider issues no address at all, `up.sh` hands that URL over as the only route to the
+pod and prints the `--server` invocation for it — readiness there is a `GET /system_stats`, and
+whether a render goes through it is **still unproven**. Prefer the tunnel whenever there is one,
+and tear the pod down promptly: the exposure lasts as long as the pod does. Requests now carry an explicit `User-Agent`, without which Cloudflare rejects the
 stdlib client with error 1010 while answering `curl` normally.
 
 `generate.py` flags: `--prompt` **or** `--prompts <file>` (mutually exclusive — the latter is a

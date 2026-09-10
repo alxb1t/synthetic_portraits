@@ -48,7 +48,8 @@ daemon, which is why a build-only failure was invisible for a month.
 
 - Reproducing pip's resolver offline. See D2 — the guard encodes the two traps this repository actually
   has, and does not attempt to be a general solver.
-- Any claim that the HTTP proxy renders. It is not render-tested here; see D3.
+- Any claim that the HTTP proxy renders. It is offered as the only route to a pod that got no address,
+  and it is verified by a GET; a render over it is not tested here. See D3 and D7.
 
 ## Decisions
 
@@ -96,6 +97,9 @@ Adopting the edit as written would silently weaken a security property that a re
 The port is therefore published only when `RUNPOD_EXPOSE_HTTP=1`. The default path is unchanged and still
 satisfies `pod.up-enables-ssh`; the new scenario `pod.up-http-port-opt-in` pins the default.
 
+**D7 narrows this decision**: the opt-in default stands, but the proxy is no longer framed as
+diagnostics-only — where the provider issues no address it is the only route, and it is offered as such.
+
 *Alternative considered: drop the port entirely.* Rejected — it is the only route that works when the
 provider issues no public IP, which is the failure that motivated the edit. Keeping it reachable behind
 an explicit flag preserves the escape hatch without making public exposure the default.
@@ -137,6 +141,44 @@ The values are adopted from the sibling isekai project, which reports converting
 failures into three-minute ones. They are recorded as adopted-from-a-sibling, not independently measured
 here — this change does not spend a pod to calibrate them.
 
+### D7 — Readiness polls the route in use, which makes the proxy an offered route (narrows D3)
+
+D6 gave the proxy path a longer deadline while the readiness loop still broke only on `publicIp` +
+`portMappings["22"]` — the tunnel's signal. So in the exact condition the flag exists for, the script
+waited *longer* for an address that would never arrive and then tore the pod down. The extra 240 s
+measured nothing it could change.
+
+**Measurement (EU-RO-1, 2026-09-09/10, found in operation rather than review):** the region is
+capacity-starved — `NVIDIA RTX PRO 4500 Blackwell` at LOW stock, cu12.8 Out — and two pods reached
+`RUNNING` with `runtime: null`, never received a public IP or a port mapping, and were destroyed at the
+180 s deadline. The proxy route needs no public IP and is reachable exactly in that condition.
+
+The loop therefore also probes `${PROXY_URL}/system_stats` when the port is published, and a pod
+reachable that way is handed over rather than destroyed. The probe is `/system_stats`, not the bare host:
+the proxy resolves long before ComfyUI is listening, so anything less would report ready while a render
+would still be refused. This is what `pod.up-polls-the-path-in-use` pins.
+
+**What this narrows in D3.** D3 stands where it is load-bearing — the port is still opt-in, the default is
+still tunnel-only, and `pod.up-enables-ssh` is still satisfied on the default path. What no longer holds
+is D3's framing of the proxy as *diagnostics-only*. When the provider issues no address there is no
+tunnel to prefer, so refusing the proxy would mean not rendering at all. The proxy is therefore stated
+here as what it is: **opt-in, published only on request; public and unauthenticated for as long as the
+pod lives; verified by a GET to `/system_stats`; and offered as the only route to that pod when no
+address is issued.** What remains unproven is unchanged and is still stated at the hand-over: only GETs
+are verified, and whether the proxy accepts a `POST /prompt` render has never been measured. Offering
+the sole route to a pod the operator paid for is not the same claim as certifying it renders.
+
+*Alternative considered: keep polling only the tunnel and let the pod be torn down.* Rejected by the
+measurement — it destroys pods that are reachable, in the one region this project's network volume lives
+in, and no amount of extra deadline can fix a signal that never arrives.
+
+*Alternative considered: probe the bare proxy host.* Rejected — it answers before ComfyUI is listening,
+so it would hand over a pod that refuses renders.
+
+*Alternative considered: hand the proxy over without printing a `--server` command.* Rejected as
+false modesty: it is the only route to that pod, and withholding the invocation would leave the operator
+to reconstruct it while the pod bills. The unproven part is named in the same block instead.
+
 Teardown reuses `down.sh` rather than issuing its own DELETE, so there is one code path that stops
 billing and one place to get it right.
 
@@ -151,8 +193,10 @@ billing and one place to get it right.
 - **`opencv-python-headless==4.11.0.86` is an older OpenCV.** → It is the version the sibling pin already
   names, so the image converges rather than regresses. No code here calls OpenCV 5 APIs; `cv2` is used
   only by the detector facade for image loading.
-- **The user agent is a value chosen to pass a filter, and filters change.** → It is not on the supported
-  path. If the proxy stops answering, the tunnel is unaffected, which is why D3 keeps the tunnel default.
+- **The user agent is a value chosen to pass a filter, and filters change.** → If the proxy stops
+  answering, the tunnel is unaffected, which is why D3 keeps the tunnel the default. The cost of the
+  filter changing is that the fallback route D7 offers stops being reachable — a pod torn down at the
+  deadline, not a broken supported path.
 - **`:latest` will change under any pod booted from it.** → That is the intent, and it is a strict
   improvement: the current image cannot execute either shipped graph. Verify with the full `/object_info`
   fetch before the first render, per the note that raised this.
@@ -172,6 +216,7 @@ forward — the pre-change state is an image that cannot render at all.
 
 ## Open Questions
 
-None that can be deferred. The one genuine unknown — whether the proxy renders once the user agent is
-set — is deliberately unresolved and out of scope by D3: it requires a metered pod, and nothing in this
-change depends on the answer.
+None that can be deferred. The one genuine unknown — whether the proxy accepts a `POST /prompt` once the
+user agent is set — is deliberately unresolved and out of scope by D3 and D7: it requires a metered pod.
+D7 offers the route where it is the only one and says plainly that only GETs are verified, so nothing in
+this change depends on the answer.

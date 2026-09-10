@@ -33,7 +33,11 @@ dependency *after* the pod is already up.
 - **`infra/up.sh` stops leaving pods billing.** Readiness becomes a bounded deadline that ends in
   teardown rather than a warning: 180 s waiting for a public IP, 420 s when falling back to the proxy,
   then `down.sh` is invoked automatically. Today's 300 s wait ends in a printed warning and a live pod.
-- **The HTTP proxy becomes an opt-in diagnostic, not a default exposure.** The uncommitted edit that adds
+- **Readiness polls the route actually in use.** With the HTTP port published, the render server
+  answering on the proxy is readiness — the proxy needs no public IP, so it is reachable exactly in the
+  condition where the tunnel's address never arrives. Waiting longer on the tunnel's signal alone tore
+  down pods that were reachable. See `design.md` D7.
+- **The HTTP proxy becomes opt-in, not a default exposure.** The uncommitted edit that adds
   `8188/http` unconditionally is **not** adopted as-is: it contradicts the shipped requirement
   `pod.up-enables-ssh` ("reached without exposing a public port"). The port is exposed only when
   `RUNPOD_EXPOSE_HTTP=1` is set, so the default remains tunnel-only. See `design.md` D3.
@@ -50,9 +54,12 @@ dependency *after* the pod is already up.
 
 - **Generating the twenty portfolio portraits is not part of this change.** That is a metered session
   against a working image, run once this change is released.
-- **The proxy is not made a supported render path.** The `User-Agent` header makes it usable for probing;
-  claiming it renders would require a live pod to prove, and the note that raised this is explicit that a
-  `curl` status probe proved nothing last time. It stays documented as diagnostic-only.
+- **No render over the proxy is proven here.** The proxy *is* offered as the only route to a pod the
+  provider issued no address for — that is what makes an otherwise-unreachable pod usable, and `design.md`
+  D7 records it — but readiness over it is a GET to `/system_stats` and nothing more. Whether it accepts
+  a `POST /prompt` would require a metered pod to prove, and the note that raised this is explicit that a
+  `curl` status probe proved nothing last time. The hand-over says so in the same breath as it offers the
+  URL. The tunnel remains the default and the path this project claims works.
 - **`build-image` is not added to the gate array.** It needs a Docker daemon and cannot run on an offline
   checkout; the array's constraint is unchanged. The consistency test is what moves the checkable part of
   this failure *into* the array.
@@ -68,8 +75,9 @@ None. Every change here tightens or corrects an existing capability.
 ### Modified Capabilities
 
 - `gpu-pod-provisioning`: the pinned dependency set must be **mutually satisfiable**, not merely exactly
-  pinned; pod readiness becomes a bounded deadline that tears the pod down on expiry; exposing the render
-  server's HTTP port becomes explicit opt-in rather than unconditional.
+  pinned; pod readiness becomes a bounded deadline that tears the pod down on expiry, and it polls the
+  access path actually in use rather than only the tunnel's; exposing the render server's HTTP port
+  becomes explicit opt-in rather than unconditional.
 - `comfyui-execution`: every request to the render server carries an explicit, non-default `User-Agent`.
 - `face-detectability`: the CLI reports a missing face-detection dependency as a clear, early error
   naming the dependency group, rather than an import traceback.
