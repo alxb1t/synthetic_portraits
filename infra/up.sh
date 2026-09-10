@@ -130,9 +130,18 @@ fi
 
 # Poll the query endpoint (?id=) — unlike GET /pods/{id}, it populates publicIp +
 # portMappings once the TCP proxy is wired up.
-echo "waiting up to ${deadline_secs}s for the pod's public IP + SSH port…"
+#
+# Readiness must test the route we will actually use. When the HTTP port is published the
+# proxy needs NO public IP, so it is reachable exactly in the condition where the tunnel
+# never becomes reachable at all — a capacity-starved region that issues no address.
+# Measured 2026-09-09/10 in EU-RO-1: two pods reached RUNNING with runtime:null and were
+# torn down at the deadline while the proxy route was the one that could have served them.
+# Waiting LONGER on the tunnel's signal cannot fix that; only polling the other route can.
+PROXY_URL="https://${pod_id}-${COMFYUI_PORT}.proxy.runpod.net"
+echo "waiting up to ${deadline_secs}s for the pod to become reachable…"
 public_ip="-"
 ssh_port="-"
+proxy_ready=0
 ready_by=$((SECONDS + deadline_secs))
 while [ "$SECONDS" -lt "$ready_by" ]; do
     pod=$(curl -sS "${API}/pods?id=${pod_id}" -H "Authorization: Bearer ${RUNPOD_API_KEY}")
@@ -149,6 +158,13 @@ EOF2
     if [ "$public_ip" != "-" ] && [ "$ssh_port" != "-" ]; then
         break
     fi
+    # /system_stats, not the bare host: the proxy resolves long before ComfyUI is listening,
+    # so anything less would report ready while a render would still be refused.
+    if [ "$EXPOSE_HTTP" = "1" ] && curl -sf -m 10 -o /dev/null "${PROXY_URL}/system_stats"; then
+        proxy_ready=1
+        echo "  proxy is answering at ${PROXY_URL}"
+        break
+    fi
     sleep "$POLL_INTERVAL_SECS"
 done
 
@@ -163,6 +179,14 @@ if [ "$public_ip" != "-" ] && [ "$ssh_port" != "-" ]; then
         echo "  Proxy:  https://${pod_id}-${COMFYUI_PORT}.proxy.runpod.net"
         echo "          PUBLIC and UNAUTHENTICATED, and NOT render-tested — diagnostics only."
     fi
+    echo
+    echo "tear down with: infra/down.sh   (do this promptly — billing runs until then)"
+elif [ "$proxy_ready" = "1" ]; then
+    trap - EXIT  # reachable over the proxy — hand it over rather than tearing it down
+    echo "pod ${pod_id} has no public IP, but ComfyUI is answering on the proxy."
+    echo "  ComfyUI: ${PROXY_URL}"
+    echo "  Run:     uv run --group faces python generate.py --server ${PROXY_URL} ..."
+    echo "  NOTE:    that URL is PUBLIC and UNAUTHENTICATED. Tear down promptly."
     echo
     echo "tear down with: infra/down.sh   (do this promptly — billing runs until then)"
 else

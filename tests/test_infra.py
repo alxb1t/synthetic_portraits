@@ -417,3 +417,18 @@ def test_up_tears_the_pod_down_when_readiness_expires():
     assert 'rc" -eq 0' in trap_line, "the trap must not tear down a pod on a successful exit"
     assert "trap - EXIT" in text, "the success path must hand the pod over, not tear it down"
     assert "DELETE" not in text, "up.sh must not hand-roll its own delete"
+
+
+@pytest.mark.spec("pod.up-polls-the-path-in-use")
+def test_up_accepts_proxy_readiness_when_the_http_port_is_published():
+    # Measured 2026-09-09/10: EU-RO-1 is capacity-starved, so pods reach RUNNING with no
+    # publicIp and no portMappings — the tunnel can never be reached. The proxy route needs
+    # no public IP and works exactly then, so waiting LONGER for an address that will never
+    # arrive tears down a pod that was reachable all along. Readiness must test the route in
+    # use, not a different one.
+    text = UP.read_text()
+
+    assert "proxy.runpod.net" in text, "up.sh never probes the published HTTP route"
+    assert "system_stats" in text, "proxy readiness must test the render server, not just DNS"
+    readiness = text[text.index("ready_by=") : text.index("tear down with:")]
+    assert "EXPOSE_HTTP" in readiness, "the proxy probe must be conditional on opting in"

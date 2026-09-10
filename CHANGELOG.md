@@ -22,6 +22,15 @@ files and the annotated tag are one line — they agree, or the release halts.
 
 ### Fixed
 
+- **Pod readiness now polls the route actually in use.** `RUNPOD_EXPOSE_HTTP=1` published the
+  proxy port but the readiness loop still waited only for a public IP — so in the exact
+  condition the flag exists for, it waited *longer* for an address that would never arrive and
+  then tore the pod down. Measured 2026-09-09/10: EU-RO-1 is capacity-starved (`RTX PRO 4500
+  Blackwell` at LOW stock), and two pods reached `RUNNING` with `runtime: null` and were
+  destroyed at the deadline while the proxy route could have served them. With the HTTP port
+  published, the loop now also probes `<proxy>/system_stats` — the render server itself, not the
+  bare host, which resolves long before ComfyUI is listening.
+
 - **The pod image is buildable again.** `constraints.txt` pinned `numpy==1.26.4` (the Impact
   Pack's ceiling) alongside `opencv-python-headless==5.0.0.93`, which requires `numpy>=2`. The
   set was exactly pinned and mutually unsatisfiable, so every `build-image` run ended in

@@ -50,6 +50,26 @@ waiting only for tunnelled access than when a fallback path is also being given 
 - **Key:** `pod.up-tears-down-on-timeout`
 - **Layers:** structural
 
+### Requirement: Readiness polls the access path actually in use
+
+Waiting for a pod to become reachable SHALL test the route the operator will use, not a
+different one. When only tunnelled access is requested, readiness is the provider issuing the
+address and port that tunnel needs. When the render server's HTTP port has been published,
+readiness SHALL also be satisfied by the render server answering on that published route,
+because it needs no address of the tunnel's kind and is reachable exactly when that address is
+never issued.
+
+A deadline that waits longer for a fallback while still testing only the primary route measures
+nothing the extra time can change: it tears down a pod that was, in fact, reachable.
+
+#### Scenario: With the HTTP port published, the render server answering is readiness
+
+- **WHEN** the render server's HTTP port has been published and the provider issues no address
+  for tunnelled access, but the render server answers on the published route
+- **THEN** the pod is reported ready over that route rather than torn down as unreachable
+- **Key:** `pod.up-polls-the-path-in-use`
+- **Layers:** structural
+
 ## MODIFIED Requirements
 
 ### Requirement: Pods are created and destroyed by script, and the pod identifier is never committed
