@@ -22,6 +22,14 @@ files and the annotated tag are one line — they agree, or the release halts.
 
 ### Fixed
 
+- **`build-image` no longer deletes the image the pod pulls.** `latest` is tagged only on the default
+  branch, but the "keep only the newest version" prune ran on every push — so running the workflow
+  against a feature branch pushed a `sha-` tag and then deleted the only `latest` in the registry. Every
+  pod created from `up.sh`'s default image reference then failed with `IMAGE_NOT_FOUND: manifest
+  unknown`. The prune is now gated on the default branch, which is the only branch that can republish
+  what it supersedes. Until a `build-image` run lands on `main`, pass
+  `RUNPOD_IMAGE=ghcr.io/<owner>/synthetic_portraits:sha-<commit>` explicitly.
+
 - **A pod can no longer bill through a stalled provider call.** The readiness deadline is tested between
   loop iterations, so it could only fire if every `curl` inside the loop returned — and `curl` has no
   default transfer timeout. A half-open connection or a provider-side stall blocked in the loop while the

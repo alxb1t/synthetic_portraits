@@ -25,6 +25,7 @@ that cannot run. Phase 5 is the only phase that touches money.
 - [x] 5 — Docs, spec binding, and the real image build
 - [x] 6 — Readiness polls the access path in use (added after phase 5; found in operation)
 - [x] 7 — The two billing windows the deadline does not cover (added after converge)
+- [x] 8 — `build-image` no longer deletes the image the pod pulls (added after the smoke test)
 
 ---
 
@@ -183,3 +184,23 @@ remaining converge findings are exported, not fixed here.
 - [x] 7.6 Record the decision as **D8** in `design.md` and add the `CHANGELOG.md` entry. Verify: `make
       gate` is green and `openspec validate 0004-restore-image-build-and-pod-access --strict` is valid,
       then commit.
+
+## 8. `build-image` no longer deletes the image the pod pulls
+
+Design D9. **Unplanned**: found by the v0.4 smoke test on 2026-09-10, after converge. Phase 5.3's green
+`build-image` run against this branch pushed a `sha-` tag and then pruned the only `latest` in the
+registry, so `up.sh`'s default image reference stopped resolving.
+
+- [x] 8.1 Add failing guards to `tests/test_infra.py`, marked
+      `spec("gpu-pod-provisioning.pod.image-prune-is-default-branch-only")` and
+      `spec("gpu-pod-provisioning.pod.image-branch-runs-keep-latest")`: the prune step is gated on the
+      default branch, and `up.sh`'s default image tag is the tag the workflow publishes. Verify: the
+      first fails against the current workflow, naming the ungated prune.
+- [x] 8.2 Gate the prune step with
+      `if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)`. Verify:
+      8.1's guards pass.
+- [x] 8.3 Record the decision as **D9** and add the `CHANGELOG.md` entry. Verify: `make gate` is green
+      and `openspec validate 0004-restore-image-build-and-pod-access --strict` is valid, then commit.
+- [ ] 8.4 Republish `latest`. The gate cannot prove this — it needs a `build-image` run on `main`, so it
+      lands with the merge rather than on this branch. Until then `up.sh` needs an explicit
+      `RUNPOD_IMAGE=...:sha-<commit>`. **Open.**

@@ -211,6 +211,32 @@ refuses to run while `.pod_id` exists, so the warning is proportionate to the re
 *Alternative considered: leave both to the release backlog.* Rejected — they are the two findings that
 cost real money, and neither needs a design change to fix.
 
+### D9 — The prune is gated on the branch that can republish what it deletes
+
+Found by the v0.4 smoke test on 2026-09-10, after phases 1-7 were built and converged.
+
+`build-image.yml` tags `latest` only via `enable={{is_default_branch}}`, but pruned on *every* run
+with `min-versions-to-keep: 1`. Task 5.3 ran the workflow against this feature branch (run
+`34382018386`) as the change's load-bearing verification. It was green, and it pushed `sha-4b2df15` —
+and then deleted every older version, including the `latest` published by v0.1.0 on 2026-08-10, the
+only image that existed. `up.sh` defaults to `:latest`, so the registry held one `sha-` tag and every
+pod thereafter failed with `IMAGE_NOT_FOUND: manifest unknown`. Three pods reached `EXITED` within
+seconds before the cause was found; RunPod stops an unpullable pod itself, so the billing loss was
+negligible, but the readiness loop still waited out its full deadline on each (see the backlog item on
+`status` blindness).
+
+The correction is one `if:` — the destructive step runs only on the branch that also produces the tag
+it is allowed to supersede. The deeper lesson is recorded rather than fixed here: **a green workflow
+run verified the build, not the artifact.** 5.3 proved `ResolutionImpossible` was gone, which was its
+stated purpose, and could not have caught this — 5.4, the step that would have pulled the image and
+listed `custom_nodes/`, was the one deferred. The two together were the check; only one ran.
+
+*Alternative considered: tag `latest` on every branch run.* Rejected — a feature branch would then
+publish itself as the image every pod pulls, which is worse than an empty registry.
+
+*Alternative considered: drop the prune.* Rejected — GHCR storage is the reason it exists, and gated
+on `main` it is correct as written.
+
 ## Risks / Trade-offs
 
 - **The consistency guard passes while a different contradiction ships.** → Accepted and stated in the

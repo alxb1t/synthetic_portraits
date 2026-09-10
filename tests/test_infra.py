@@ -24,6 +24,7 @@ DOWNLOAD = REPO_ROOT / "download_models.sh"
 START = REPO_ROOT / "infra" / "start.sh"
 UP = REPO_ROOT / "infra" / "up.sh"
 DOWN = REPO_ROOT / "infra" / "down.sh"
+BUILD_IMAGE = REPO_ROOT / ".github" / "workflows" / "build-image.yml"
 
 SHELL_SCRIPTS = [DOWNLOAD, START, UP, DOWN]
 
@@ -497,4 +498,44 @@ def test_up_accepts_proxy_readiness_when_the_http_port_is_published():
     assert "EXPOSE_HTTP" in probe, "the proxy probe must be conditional on opting in"
     assert any("proxy_ready" in ln and "=" in ln for ln in code), (
         "a pod reachable only over the proxy must be recorded as ready, not torn down"
+    )
+
+
+# --- build-image publishes what the pod pulls (change 0004, D9) --------------
+
+
+@pytest.mark.spec("pod.image-prune-is-default-branch-only")
+def test_the_registry_prune_never_runs_off_the_default_branch():
+    # Measured 2026-09-10. `latest` is tagged only on the default branch, but the prune
+    # step ran on EVERY push — so running build-image against a feature branch pushed a
+    # sha- tag and then deleted every older version, INCLUDING the only `latest` that
+    # existed. `up.sh` defaults to :latest, so three pods failed with
+    # IMAGE_NOT_FOUND/manifest unknown against a registry holding one sha- tag.
+    #
+    # A green workflow run is not the check: that run WAS green. The destructive step has
+    # to be gated on the branch that also produces the tag it is allowed to supersede.
+    text = BUILD_IMAGE.read_text()
+    prune = [ln for ln in text.splitlines() if "delete-package-versions" in ln]
+    assert prune, "build-image no longer prunes; delete this guard with the step"
+
+    block = text.split("delete-package-versions", 1)[1]
+    guarded = "default_branch" in text.split("delete-package-versions")[0].rsplit("- name:", 1)[-1]
+    assert guarded, (
+        "the prune step must be gated on the default branch — off it, the run deletes "
+        "the `latest` it cannot republish"
+    )
+    assert "min-versions-to-keep" in block
+
+
+@pytest.mark.spec("pod.image-branch-runs-keep-latest")
+def test_the_image_the_pod_pulls_by_default_is_the_one_the_workflow_tags():
+    # up.sh's default image reference and the workflow's raw tag are one string. If the
+    # workflow stops emitting `latest`, every pod created without RUNPOD_IMAGE fails to
+    # pull — which is exactly what happened, and nothing in the suite noticed.
+    workflow = BUILD_IMAGE.read_text()
+    up = UP.read_text()
+
+    assert "value=latest" in workflow, "build-image no longer publishes a `latest` tag"
+    assert ":latest}" in up or ':latest"' in up or ":latest" in up, (
+        "up.sh no longer defaults to :latest — retire this pairing deliberately"
     )
