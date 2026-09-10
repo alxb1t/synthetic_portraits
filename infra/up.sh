@@ -169,29 +169,39 @@ EOF2
 done
 
 echo
-if [ "$public_ip" != "-" ] && [ "$ssh_port" != "-" ]; then
-    trap - EXIT  # the pod is good — hand it over rather than tearing it down
+# Unreachable by BOTH routes is the only failure: fall out first, and the EXIT trap tears
+# the pod down. Everything below is a reachable pod, so the trap is cleared and the
+# hand-over trailer printed exactly once rather than per branch.
+if [ "$public_ip" = "-" ] || [ "$ssh_port" = "-" ]; then
+    if [ "$proxy_ready" != "1" ]; then
+        echo "pod ${pod_id} never became reachable within ${deadline_secs}s." >&2
+        echo "This is a known RunPod condition (RUNNING with no public IP and no port" >&2
+        echo "mapping), not a fault here. The EXIT trap tears it down so it stops billing." >&2
+        exit 1
+    fi
+fi
+
+trap - EXIT  # the pod is reachable — hand it over rather than tearing it down
+
+if [ "$proxy_ready" = "1" ]; then
+    # No public IP was issued, so there is no tunnel to offer — the proxy is the only
+    # route to this pod, not a fallback beside a working one.
+    echo "pod ${pod_id} has no public IP; ComfyUI is answering on the proxy."
+    echo "  ComfyUI: ${PROXY_URL}"
+    echo "  Run:     uv run --group faces python generate.py --server ${PROXY_URL} ..."
+    echo "  NOTE:    that URL is PUBLIC and UNAUTHENTICATED, and stays that way until"
+    echo "           infra/down.sh runs — not just for a moment. Only GETs are verified;"
+    echo "           whether the proxy accepts renders is unproven."
+else
     echo "pod ${pod_id} is up at ${public_ip}:${ssh_port}"
     echo "  SSH:    ssh -i ${SSH_KEY} root@${public_ip} -p ${ssh_port}"
     echo "  Tunnel: ssh -i ${SSH_KEY} -N -L ${COMFYUI_PORT}:localhost:${COMFYUI_PORT} root@${public_ip} -p ${ssh_port}"
     echo "then ComfyUI is at http://localhost:${COMFYUI_PORT} (through the tunnel — no Cloudflare)"
     if [ "$EXPOSE_HTTP" = "1" ]; then
-        echo "  Proxy:  https://${pod_id}-${COMFYUI_PORT}.proxy.runpod.net"
-        echo "          PUBLIC and UNAUTHENTICATED, and NOT render-tested — diagnostics only."
+        echo "  Proxy:  ${PROXY_URL}"
+        echo "          PUBLIC and UNAUTHENTICATED — prefer the tunnel above."
     fi
-    echo
-    echo "tear down with: infra/down.sh   (do this promptly — billing runs until then)"
-elif [ "$proxy_ready" = "1" ]; then
-    trap - EXIT  # reachable over the proxy — hand it over rather than tearing it down
-    echo "pod ${pod_id} has no public IP, but ComfyUI is answering on the proxy."
-    echo "  ComfyUI: ${PROXY_URL}"
-    echo "  Run:     uv run --group faces python generate.py --server ${PROXY_URL} ..."
-    echo "  NOTE:    that URL is PUBLIC and UNAUTHENTICATED. Tear down promptly."
-    echo
-    echo "tear down with: infra/down.sh   (do this promptly — billing runs until then)"
-else
-    echo "pod ${pod_id} never became reachable within ${deadline_secs}s." >&2
-    echo "This is a known RunPod condition (RUNNING with no public IP and no port" >&2
-    echo "mapping), not a fault here. The EXIT trap tears it down so it stops billing." >&2
-    exit 1
 fi
+
+echo
+echo "tear down with: infra/down.sh   (do this promptly — billing runs until then)"

@@ -426,9 +426,19 @@ def test_up_accepts_proxy_readiness_when_the_http_port_is_published():
     # no public IP and works exactly then, so waiting LONGER for an address that will never
     # arrive tears down a pod that was reachable all along. Readiness must test the route in
     # use, not a different one.
-    text = UP.read_text()
+    # Asserted against the probe's own CODE line, not the file. An earlier version of this
+    # test checked `"system_stats" in text` and sliced the file between two string anchors;
+    # both were satisfied by the pre-fix script — the slice caught an unrelated EXPOSE_HTTP
+    # check in the success branch, and the surviving assertion matched the explanatory
+    # COMMENT above the probe. Deleting the whole fix but keeping its comment left it green.
+    code = [ln for ln in UP.read_text().splitlines() if not ln.strip().startswith("#")]
 
-    assert "proxy.runpod.net" in text, "up.sh never probes the published HTTP route"
-    assert "system_stats" in text, "proxy readiness must test the render server, not just DNS"
-    readiness = text[text.index("ready_by=") : text.index("tear down with:")]
-    assert "EXPOSE_HTTP" in readiness, "the proxy probe must be conditional on opting in"
+    probes = [ln for ln in code if "system_stats" in ln]
+    assert probes, "up.sh does not probe the render server on the published HTTP route"
+    probe = probes[0]
+
+    assert "PROXY_URL" in probe, "the probe must target the published proxy route"
+    assert "EXPOSE_HTTP" in probe, "the proxy probe must be conditional on opting in"
+    assert any("proxy_ready" in ln and "=" in ln for ln in code), (
+        "a pod reachable only over the proxy must be recorded as ready, not torn down"
+    )
