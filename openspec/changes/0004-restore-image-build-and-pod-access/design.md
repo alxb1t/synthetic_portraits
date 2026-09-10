@@ -182,6 +182,35 @@ to reconstruct it while the pod bills. The unproven part is named in the same bl
 Teardown reuses `down.sh` rather than issuing its own DELETE, so there is one code path that stops
 billing and one place to get it right.
 
+### D8 — A deadline is only as bounded as the calls inside it (narrows D6)
+
+Raised by the converge security station (S1, S2) after D6 shipped, and fixed here rather than deferred
+because both are billing exposures and both are one line.
+
+D6 bounds readiness with a deadline tested **between** loop iterations. That makes the bound conditional
+on every call inside the loop returning, and `curl` has no default transfer timeout — a half-open
+connection through a NAT, or a provider-side stall, blocks inside the loop while `SECONDS` sails past
+`ready_by`. `down.sh` is never reached and the pod bills for the length of the stall. The EXIT trap does
+not rescue it: the trap runs when the script exits, and the script is not exiting. So every provider call
+now carries `-m 30 --connect-timeout 10`, matching the `-m 10` the proxy probe already had. A timed-out
+call then fails under `set -e`, which *is* an exit, which is the trap. `down.sh` is held to the same bar
+for the sharper form of the same failure — a teardown that hangs tells the operator the pod is gone while
+it is still billing — and its DELETE gains `|| true` so a timeout lands on the branch that names the
+console instead of exiting silently.
+
+The trap also has one window in front of it that it cannot cover: `POST /pods` may succeed server-side
+while the id never reaches us, so `.pod_id` is never written and there is nothing to tear down *by*. No
+trap can close that — the mitigation is to say it. The unreadable-id path now warns that a pod may exist
+and names it for a console check, because an operator who reads "pod creation failed" as "nothing was
+created" leaves a pod billing unattended.
+
+*Alternative considered: a pre-create trap that looks the pod up by name and deletes a match.* Rejected
+for this change — it makes teardown depend on name uniqueness across the account, and `up.sh` already
+refuses to run while `.pod_id` exists, so the warning is proportionate to the residual risk.
+
+*Alternative considered: leave both to the release backlog.* Rejected — they are the two findings that
+cost real money, and neither needs a design change to fix.
+
 ## Risks / Trade-offs
 
 - **The consistency guard passes while a different contradiction ships.** → Accepted and stated in the

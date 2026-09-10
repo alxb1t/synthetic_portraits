@@ -32,8 +32,12 @@ if [ -z "$pod_id" ]; then
 fi
 
 echo "tearing down pod ${pod_id} (stops billing)…"
-code=$(curl -sS -o /dev/null -w '%{http_code}' -X DELETE "${API}/pods/${pod_id}" \
-    -H "Authorization: Bearer ${RUNPOD_API_KEY}")
+# Bounded, and failure-tolerant on purpose: an untimed DELETE that stalls leaves the
+# operator believing the pod was torn down while it bills. `|| true` keeps a timeout
+# (curl reports '000') on the path below that names the console, rather than letting
+# `set -e` exit silently at the one moment the operator needs telling.
+code=$(curl -sS -m 30 --connect-timeout 10 -o /dev/null -w '%{http_code}' -X DELETE "${API}/pods/${pod_id}" \
+    -H "Authorization: Bearer ${RUNPOD_API_KEY}" || true)
 
 case "$code" in
     2*)

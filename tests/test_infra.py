@@ -12,6 +12,7 @@ import json
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -356,13 +357,68 @@ def _up_payload_ports(**env: str) -> list[str]:
         "RUNPOD_PUBKEY": "ssh-ed25519 AAAA test",
     }
     proc = subprocess.run(
-        ["python3", "-c", snippet],
+        [sys.executable, "-c", snippet],
         env={**base, **env},
         capture_output=True,
         text=True,
         check=True,
     )
     return json.loads(proc.stdout)["ports"]
+
+
+def _curl_invocations(path: Path) -> list[str]:
+    """Return each `curl` command in a shell script as one line, continuations joined.
+
+    A backslash-continued invocation is several source lines but one command, and its
+    flags may sit on any of them — so the flags are asserted against the joined command
+    rather than against the line the word ``curl`` happens to appear on.
+    """
+    joined = re.sub(r"\\\n\s*", " ", path.read_text())
+    return [
+        ln.strip()
+        for ln in joined.splitlines()
+        if re.search(r"(^|[\s$(`])curl\s", ln) and not ln.strip().startswith("#")
+    ]
+
+
+@pytest.mark.spec("pod.up-bounded-readiness")
+def test_every_provider_call_is_bounded_against_a_hung_connection():
+    # The readiness deadline is only tested BETWEEN iterations, so it can fire only if every
+    # curl inside the loop returns. curl has no default transfer timeout: a half-open TCP
+    # connection through a NAT, or a provider-side stall, blocks in the loop forever, SECONDS
+    # sails past the deadline, down.sh is never reached, and the pod bills for the length of
+    # the stall — the unbounded billing D6 exists to convert into a three-minute loss. The
+    # EXIT trap cannot help: it runs when the script exits, and the script is not exiting.
+    #
+    # down.sh is held to the same bar for the sharper version of the same failure: a teardown
+    # that hangs leaves the operator believing the pod was deleted while it is still billing.
+    for script in (UP, DOWN):
+        invocations = _curl_invocations(script)
+        assert invocations, f"{script.name} makes no curl call"
+        for call in invocations:
+            assert re.search(r"(--max-time|\s-m)\s", call), (
+                f"{script.name} calls curl with no transfer timeout, so it can hang "
+                f"past every deadline: {call}"
+            )
+
+
+@pytest.mark.spec("pod.up-tears-down-on-timeout")
+def test_up_says_a_pod_may_exist_when_the_id_cannot_be_read():
+    # The EXIT trap is installed after the create response is parsed, so one window is not
+    # covered by it: the provider creates the pod but the client never sees a usable id —
+    # curl interrupted after creation, an unexpected response shape, a parse failure. The
+    # script exits 1 and the operator concludes nothing was created, while .pod_id is absent
+    # so down.sh has nothing to delete and the pod bills until someone opens the console.
+    # The trap cannot cover it (there is no id to tear down), so the failure must be SAID.
+    text = UP.read_text()
+    branch = text.split('if [ -z "$pod_id" ]; then', 1)
+    assert len(branch) == 2, "up.sh no longer guards against an unreadable pod id"
+    branch = branch[1].split("\nfi\n", 1)[0]
+
+    assert "may have been created" in branch, (
+        "the unreadable-id path must warn that a pod may be live and billing"
+    )
+    assert "POD_NAME" in branch, "the warning must name the pod so the console can be checked"
 
 
 @pytest.mark.spec("pod.up-http-port-opt-in")

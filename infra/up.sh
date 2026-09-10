@@ -100,15 +100,28 @@ PY
 )
 
 echo "creating pod '${POD_NAME}' (${GPU_TYPE}) — this STARTS per-second billing…"
-response=$(curl -sS -X POST "${API}/pods" \
+# --max-time on every provider call, not just the proxy probe: curl has no default
+# transfer timeout, and the readiness deadline below is only tested BETWEEN iterations.
+# A stalled connection inside a call therefore outlives every deadline in this script,
+# and the EXIT trap cannot help because the script is not exiting — the pod simply bills
+# for the length of the stall. A timed-out curl fails under `set -e` instead, which is
+# an exit, which is the trap.
+response=$(curl -sS -m 30 --connect-timeout 10 -X POST "${API}/pods" \
     -H "Authorization: Bearer ${RUNPOD_API_KEY}" \
     -H "Content-Type: application/json" \
     -d "${payload}")
 
 pod_id=$(printf '%s' "$response" | python3 -c 'import sys, json; d=json.load(sys.stdin); d=d[0] if isinstance(d, list) else d; print(d.get("id", ""))' 2>/dev/null || true)
 if [ -z "$pod_id" ]; then
+    # The one window the EXIT trap below cannot cover: the provider may have created
+    # the pod and only the id failed to reach us, so there is nothing to tear down by.
+    # Saying so is the whole mitigation — .pod_id is absent, so down.sh has no target,
+    # and an operator who reads "failed" as "nothing was created" leaves it billing.
     echo "pod creation failed:" >&2
     printf '%s\n' "$response" >&2
+    echo "WARNING: a pod may have been created anyway — this failed while reading the" >&2
+    echo "         id, not necessarily before the pod existed. Check the RunPod console" >&2
+    echo "         for '${POD_NAME}' and delete it, or it bills unattended." >&2
     exit 1
 fi
 printf '%s' "$pod_id" > "$STATE_FILE"
@@ -144,7 +157,7 @@ ssh_port="-"
 proxy_ready=0
 ready_by=$((SECONDS + deadline_secs))
 while [ "$SECONDS" -lt "$ready_by" ]; do
-    pod=$(curl -sS "${API}/pods?id=${pod_id}" -H "Authorization: Bearer ${RUNPOD_API_KEY}")
+    pod=$(curl -sS -m 30 --connect-timeout 10 "${API}/pods?id=${pod_id}" -H "Authorization: Bearer ${RUNPOD_API_KEY}")
     read -r public_ip ssh_port <<EOF2
 $(printf '%s' "$pod" | python3 -c '
 import sys, json

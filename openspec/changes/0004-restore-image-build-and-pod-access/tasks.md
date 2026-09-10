@@ -1,7 +1,8 @@
 # Tasks — 0004-restore-image-build-and-pod-access
 
-Five phases as planned, plus **phase 6**, which was not planned: the readiness defect it fixes was found
-in operation after phase 5 shipped, and it is recorded here rather than left as a commit with no task.
+Five phases as planned, plus **phases 6 and 7**, which were not: phase 6's readiness defect was found in
+operation after phase 5 shipped, and phase 7's two billing windows were raised by the converge security
+station. Both are recorded here rather than left as commits with no task.
 Each phase is independently committable, ends on a **green gate** (`make gate`, run and never
 summarized), a `CHANGELOG.md` entry, a ticked `## Progress` box and **one** commit whose message ends
 with a `Change: 0004-restore-image-build-and-pod-access` trailer contiguous with any `Co-Authored-By:`
@@ -23,6 +24,7 @@ that cannot run. Phase 5 is the only phase that touches money.
 - [x] 4 — `infra/up.sh`: bounded readiness, self-teardown, opt-in HTTP port
 - [x] 5 — Docs, spec binding, and the real image build
 - [x] 6 — Readiness polls the access path in use (added after phase 5; found in operation)
+- [x] 7 — The two billing windows the deadline does not cover (added after converge)
 
 ---
 
@@ -153,3 +155,31 @@ that would never arrive and then tore the pod down.
 - [x] 6.6 `CHANGELOG.md` entry — landed with 6.2 under `Fixed` ("Pod readiness now polls the route
       actually in use"), which is where the EU-RO-1 measurement was first written down. Verify: `make
       gate` is green, then commit.
+
+## 7. The two billing windows the deadline does not cover
+
+Design D8, which narrows D6. **Unplanned**: both were raised by the converge security station (S1, S2)
+after phases 1–6 were built and committed. They are taken in-branch rather than deferred to the release
+backlog because both are unbounded-billing exposures and neither needs a design change to fix. The
+remaining converge findings are exported, not fixed here.
+
+- [x] 7.1 Add a failing guard to `tests/test_infra.py`, marked
+      `spec("gpu-pod-provisioning.pod.up-bounded-readiness")`: every `curl` in `up.sh` and `down.sh`
+      carries a transfer timeout, asserted against the invocation with its line continuations joined
+      rather than against the source line the word `curl` sits on. Verify: it fails, naming the untimed
+      `POST /pods`.
+- [x] 7.2 Add `-m 30 --connect-timeout 10` to the creation POST and the readiness query in `infra/up.sh`,
+      and to the DELETE in `infra/down.sh` — with `|| true` there so a timeout lands on the branch that
+      names the console rather than exiting silently under `set -e`. Verify: 7.1's guard passes;
+      `bash -n` exits 0 on both scripts.
+- [x] 7.3 Add a failing guard, marked `spec("gpu-pod-provisioning.pod.up-tears-down-on-timeout")`: the
+      unreadable-`pod_id` path warns that a pod may exist and names it. Verify: it fails against the
+      current branch text.
+- [x] 7.4 Warn on that path in `infra/up.sh`. It is the one window in front of the EXIT trap that no trap
+      can cover — there is no id to tear down by, so saying it *is* the mitigation. Verify: 7.3 passes.
+- [x] 7.5 Fix converge finding R4: `_up_payload_ports` execs `[sys.executable, ...]` rather than
+      `python3` with a `PATH`-less environment, which resolved only via `os.defpath`. Verify: the payload
+      tests pass on a uv-managed interpreter.
+- [x] 7.6 Record the decision as **D8** in `design.md` and add the `CHANGELOG.md` entry. Verify: `make
+      gate` is green and `openspec validate 0004-restore-image-build-and-pod-access --strict` is valid,
+      then commit.

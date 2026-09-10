@@ -22,6 +22,21 @@ files and the annotated tag are one line — they agree, or the release halts.
 
 ### Fixed
 
+- **A pod can no longer bill through a stalled provider call.** The readiness deadline is tested between
+  loop iterations, so it could only fire if every `curl` inside the loop returned — and `curl` has no
+  default transfer timeout. A half-open connection or a provider-side stall blocked in the loop while the
+  clock ran past the deadline: `down.sh` was never reached, and the EXIT trap could not help because the
+  script was not exiting. Every provider call in `infra/up.sh` and `infra/down.sh` now carries
+  `-m 30 --connect-timeout 10`, so a stall fails under `set -e` — which is an exit, which is the trap.
+  `down.sh`'s DELETE additionally tolerates the timeout so it lands on the path that names the console,
+  rather than exiting silently at the one moment the operator needs telling.
+
+- **Pod creation that fails while reading the id now says a pod may exist.** `POST /pods` can succeed
+  server-side while the id never reaches the client, which leaves no `.pod_id` for `down.sh` to delete
+  and is the one window in front of the EXIT trap that no trap can cover. The path printed "pod creation
+  failed", which an operator reasonably reads as "nothing was created" — while a pod billed unattended.
+  It now warns explicitly and names the pod for a console check.
+
 - **Pod readiness now polls the route actually in use.** `RUNPOD_EXPOSE_HTTP=1` published the
   proxy port but the readiness loop still waited only for a public IP — so in the exact
   condition the flag exists for, it waited *longer* for an address that would never arrive and
