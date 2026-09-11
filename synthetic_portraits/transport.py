@@ -106,6 +106,18 @@ def _describe_error(status: dict[str, Any], prompt_id: str) -> str:
 
 # --- Real implementation (stdlib urllib) ------------------------------------
 
+# Cloudflare, which fronts a pod when no tunnelled route exists, answers the stdlib's
+# default `Python-urllib/3.x` with error 1010 — a user-agent block. The request never
+# reaches ComfyUI, so a failure that is purely about client identification surfaces as an
+# unexplained transport error (measured 2026-09-09: `curl` got 200 where this client got
+# 1010). A browser-like value is what gets past that filter; that is the property being
+# relied on, and it is recorded here rather than left as a bare string. Setting it adds no
+# dependency — the runtime stays stdlib-only. See change 0004, design D4.
+USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+)
+
 
 class ComfyClient:
     """HTTP transport to a ComfyUI server over stdlib ``urllib``."""
@@ -118,10 +130,30 @@ class ComfyClient:
         self.client_id = client_id or uuid.uuid4().hex
         self.timeout = timeout
 
+    def _request(
+        self,
+        url: str,
+        *,
+        data: bytes | None = None,
+        headers: dict[str, str] | None = None,
+        method: str = "GET",
+    ) -> Request:
+        """Build a request carrying :data:`USER_AGENT`, merged over any caller headers.
+
+        Every call goes through here, so no path can be added later that silently keeps
+        the standard library's default user agent (design D4).
+        """
+        return Request(
+            url,
+            data=data,
+            headers={"User-Agent": USER_AGENT, **(headers or {})},
+            method=method,
+        )
+
     def upload_image(self, filename: str, data: bytes) -> str:
         """POST an image to ``/upload/image``; return the name ComfyUI stored it under."""
         content_type, body = _encode_multipart(filename, data)
-        req = Request(
+        req = self._request(
             f"{self.base_url}/upload/image",
             data=body,
             headers={"Content-Type": content_type},
@@ -132,7 +164,7 @@ class ComfyClient:
     def queue_prompt(self, workflow: dict[str, Any]) -> str:
         """POST a workflow graph to ``/prompt``; return the queued ``prompt_id``."""
         payload = json.dumps({"prompt": workflow, "client_id": self.client_id}).encode()
-        req = Request(
+        req = self._request(
             f"{self.base_url}/prompt",
             data=payload,
             headers={"Content-Type": "application/json"},
@@ -146,13 +178,13 @@ class ComfyClient:
 
     def get_history(self, prompt_id: str) -> dict[str, Any]:
         """Fetch ``/history/<prompt_id>``; empty while the prompt is still pending."""
-        req = Request(f"{self.base_url}/history/{prompt_id}", method="GET")
+        req = self._request(f"{self.base_url}/history/{prompt_id}")
         return self._json(req)
 
     def get_image(self, filename: str, subfolder: str, folder_type: str) -> bytes:
         """Fetch one rendered image's raw bytes from ``/view``."""
         query = urlencode({"filename": filename, "subfolder": subfolder, "type": folder_type})
-        req = Request(f"{self.base_url}/view?{query}", method="GET")
+        req = self._request(f"{self.base_url}/view?{query}")
         return self._bytes(req)
 
     # -- low-level request helpers --

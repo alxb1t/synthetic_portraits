@@ -68,7 +68,17 @@ jobs:
       # Keep only the latest image in the registry: after a successful push, delete
       # every older version. Safe because provenance:false makes each build a single
       # manifest, so keeping the newest 1 can never orphan a referenced child manifest.
+      #
+      # DEFAULT BRANCH ONLY. `latest` is tagged by the metadata step above via
+      # `enable={{is_default_branch}}`, so a feature-branch run pushes a sha- tag and
+      # nothing else — and this prune would then delete the `latest` that run cannot
+      # republish. That happened on 2026-09-09 (run 34382018386, branch
+      # v0.4_restore_image_build): the run was green and left the registry holding one
+      # sha- tag, after which every pod created from up.sh's `:latest` default failed
+      # with IMAGE_NOT_FOUND. The destructive step is gated on the branch that also
+      # produces the tag it is allowed to supersede. See design D9.
       - name: Prune old GHCR versions (keep only latest)
+        if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
         uses: actions/delete-package-versions@v5
         with:
           package-name: ${{ github.event.repository.name }}

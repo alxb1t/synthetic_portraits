@@ -8,9 +8,13 @@ Docker daemon) — ``.github/workflows/build-image.yml`` builds the image for re
 
 from __future__ import annotations
 
+import json
+import os
 import re
 import shutil
 import subprocess
+import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -22,6 +26,8 @@ DOWNLOAD = REPO_ROOT / "download_models.sh"
 START = REPO_ROOT / "infra" / "start.sh"
 UP = REPO_ROOT / "infra" / "up.sh"
 DOWN = REPO_ROOT / "infra" / "down.sh"
+BUILD_IMAGE = REPO_ROOT / ".github" / "workflows" / "build-image.yml"
+CHECK_FACE = REPO_ROOT / "scripts" / "check_face.py"
 
 SHELL_SCRIPTS = [DOWNLOAD, START, UP, DOWN]
 
@@ -94,16 +100,70 @@ def test_dockerfile_pins_face_and_detailer_deps_for_reproducible_builds():
         assert "-c /opt/constraints.txt" in ln, ln
 
 
+def _constraint_pins() -> dict[str, str]:
+    # `name==version` -> {name: version}, lowercased; comments and blanks dropped.
+    pins: dict[str, str] = {}
+    for raw in CONSTRAINTS.read_text().splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        name, _, version = line.partition("==")
+        pins[name.strip().lower()] = version.strip()
+    return pins
+
+
+def _major(version: str) -> int:
+    return int(version.split(".")[0])
+
+
 @pytest.mark.spec("pod.constraints-fully-pinned")
 def test_constraints_file_pins_every_line_exactly():
     # Every non-comment line is an exact `name==version` pin (no floating specifiers), and
     # no URL/VCS requirement (pip forbids those in a constraints file).
-    lines = CONSTRAINTS.read_text().splitlines()
-    pins = [ln.strip() for ln in lines if ln.strip() and not ln.lstrip().startswith("#")]
+    pins = [f"{name}=={version}" for name, version in _constraint_pins().items()]
     assert pins, "expected version pins"
     for pin in pins:
         assert re.fullmatch(r"[A-Za-z0-9._-]+==[A-Za-z0-9._+!-]+", pin), pin
     assert not any(" @ " in pin for pin in pins), "no URL/VCS requirements in constraints"
+
+
+@pytest.mark.spec("pod.opencv-pins-agree")
+def test_constraints_pin_one_opencv_version_across_both_distributions():
+    """The two OpenCV builds must name the same upstream version.
+
+    A regression guard, not a resolver: no test here may reach a package index, so this
+    encodes the trap this repository actually hit rather than proving the set resolves.
+    `build-image` remains the real proof (change 0004, design D2).
+
+    Drift between these two pins is what produced the contradiction in `ca1669f`:
+    `opencv-python` stayed at 4.11.0.86 while `opencv-python-headless` moved to 5.0.0.93,
+    whose `numpy>=2` requirement cannot hold beside the pinned `numpy==1.26.4`.
+    """
+    pins = _constraint_pins()
+    headless, regular = pins["opencv-python-headless"], pins["opencv-python"]
+    assert headless == regular, (
+        f"opencv-python-headless=={headless} disagrees with opencv-python=={regular}; "
+        "the image would resolve two different OpenCV versions"
+    )
+
+
+@pytest.mark.spec("pod.constraints-mutually-satisfiable")
+def test_constraints_numpy_pin_can_hold_beside_every_other_pin():
+    """The pinned set must be satisfiable, not merely exactly pinned.
+
+    `pod.constraints-fully-pinned` is satisfied by a set pip cannot resolve — which is
+    exactly how the image build stayed red from 2026-08-10. OpenCV 5.x requires
+    `numpy>=2`; the Impact Pack, which supplies FaceDetailer and
+    UltralyticsDetectorProvider, caps numpy below 2. Both cannot hold (design D1/D2).
+    """
+    pins = _constraint_pins()
+    numpy_pin = pins["numpy"]
+    assert _major(numpy_pin) < 2, f"numpy=={numpy_pin} breaches the Impact Pack ceiling of <2"
+    for dist in ("opencv-python", "opencv-python-headless"):
+        assert _major(pins[dist]) < 5, (
+            f"{dist}=={pins[dist]} requires numpy>=2, which cannot hold beside "
+            f"the pinned numpy=={numpy_pin}"
+        )
 
 
 @pytest.mark.spec("pod.pins-face-deps")
@@ -276,3 +336,402 @@ def test_pod_id_state_file_is_gitignored():
     # The pod-id scratch file is per-run local state, never committed.
     gitignore = (REPO_ROOT / ".gitignore").read_text()
     assert ".pod_id" in gitignore
+
+
+# --- Bounded readiness, self-teardown, opt-in HTTP (change 0004, D3/D6) ------
+
+
+def _up_payload_ports(**env: str) -> list[str]:
+    """Run up.sh's payload builder with a controlled environment; return its ports list.
+
+    The heredoc is executed rather than pattern-matched, so this asserts what the script
+    actually sends to the provider rather than what its source appears to say.
+    """
+    match = re.search(r"python3 <<'PY'\n(.*?)\nPY\n", UP.read_text(), re.S)
+    assert match, "up.sh no longer contains the payload-builder heredoc"
+    snippet = match.group(1)
+    base = {
+        "RUNPOD_NAME": "test-pod",
+        "RUNPOD_IMG": "example/image:latest",
+        "RUNPOD_GPU": "TEST GPU",
+        "RUNPOD_DISK": "30",
+        "RUNPOD_MNT": "/runpod-volume",
+        "RUNPOD_VOL": "volumeid",
+        "RUNPOD_DC": "",
+        "RUNPOD_PUBKEY": "ssh-ed25519 AAAA test",
+    }
+    proc = subprocess.run(
+        [sys.executable, "-c", snippet],
+        env={**base, **env},
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return json.loads(proc.stdout)["ports"]
+
+
+def _curl_invocations(path: Path) -> list[str]:
+    """Return each `curl` command in a shell script as one line, continuations joined.
+
+    A backslash-continued invocation is several source lines but one command, and its
+    flags may sit on any of them — so the flags are asserted against the joined command
+    rather than against the line the word ``curl`` happens to appear on.
+    """
+    joined = re.sub(r"\\\n\s*", " ", path.read_text())
+    return [
+        ln.strip()
+        for ln in joined.splitlines()
+        if re.search(r"(^|[\s$(`])curl\s", ln) and not ln.strip().startswith("#")
+    ]
+
+
+@pytest.mark.spec("pod.up-bounded-readiness")
+def test_every_provider_call_is_bounded_against_a_hung_connection():
+    # The readiness deadline is only tested BETWEEN iterations, so it can fire only if every
+    # curl inside the loop returns. curl has no default transfer timeout: a half-open TCP
+    # connection through a NAT, or a provider-side stall, blocks in the loop forever, SECONDS
+    # sails past the deadline, down.sh is never reached, and the pod bills for the length of
+    # the stall — the unbounded billing D6 exists to convert into a three-minute loss. The
+    # EXIT trap cannot help: it runs when the script exits, and the script is not exiting.
+    #
+    # down.sh is held to the same bar for the sharper version of the same failure: a teardown
+    # that hangs leaves the operator believing the pod was deleted while it is still billing.
+    for script in (UP, DOWN):
+        invocations = _curl_invocations(script)
+        assert invocations, f"{script.name} makes no curl call"
+        for call in invocations:
+            assert re.search(r"(--max-time|\s-m)\s", call), (
+                f"{script.name} calls curl with no transfer timeout, so it can hang "
+                f"past every deadline: {call}"
+            )
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash not available")
+@pytest.mark.spec("pod.up-warns-when-the-id-never-arrives")
+def test_up_says_a_pod_may_exist_when_the_id_cannot_be_read(tmp_path: Path):
+    # The parse half of the window. The provider answers, but the body carries no usable
+    # id — an unexpected shape, a truncated body, an error object. The script exits 1 and
+    # the operator concludes nothing was created, while .pod_id is absent so down.sh has
+    # nothing to delete and the pod bills until someone opens the console. No trap can
+    # cover it (there is no id to tear down by), so the failure must be SAID.
+    #
+    # Run rather than grepped: an earlier version of this test sliced the source for the
+    # warning text inside the `[ -z "$pod_id" ]` branch, which says the warning was
+    # written, not that anything reaches it.
+    proc = _run_up_with_stub_curl(tmp_path, "#!/bin/sh\nprintf '%s' '{\"error\": \"nope\"}'\n")
+
+    assert proc.returncode != 0, "a create response with no id must not report success"
+    assert "may have been created" in proc.stderr, (
+        f"the unreadable-id path must warn that a pod may be live and billing; got: {proc.stderr!r}"
+    )
+    assert "stub-pod-name" in proc.stderr, (
+        "the warning must name the pod so the console can be checked"
+    )
+
+
+def _run_up_with_stub_curl(tmp_path: Path, curl_body: str) -> subprocess.CompletedProcess[str]:
+    """Execute a copy of ``up.sh`` against a stub ``curl``; return the finished process.
+
+    Offline and creates nothing: the script is copied out of the repository so the run reads
+    no real ``.env`` and cannot write the real ``infra/.pod_id``, and ``curl`` is shadowed on
+    ``PATH``, so no provider is contacted. ``start_new_session`` gives the copy its own
+    process group, so a stub that signals its group reaches the script and nothing else.
+    """
+    infra = tmp_path / "infra"
+    infra.mkdir()
+    for script in (UP, DOWN):
+        copy = infra / script.name
+        copy.write_text(script.read_text())
+        copy.chmod(0o755)
+
+    stub_dir = tmp_path / "bin"
+    stub_dir.mkdir()
+    stub_curl = stub_dir / "curl"
+    stub_curl.write_text(curl_body)
+    stub_curl.chmod(0o755)
+
+    (tmp_path / "id_test.pub").write_text("ssh-ed25519 AAAA test\n")
+
+    return subprocess.run(
+        ["bash", str(infra / "up.sh")],
+        cwd=str(tmp_path),
+        env={
+            "PATH": f"{stub_dir}{os.pathsep}{os.environ['PATH']}",
+            "HOME": str(tmp_path),
+            "RUNPOD_API_KEY": "test-key",
+            "RUNPOD_NETWORK_VOLUME_ID": "test-volume",
+            "RUNPOD_SSH_KEY": str(tmp_path / "id_test"),
+            "RUNPOD_POD_NAME": "stub-pod-name",
+        },
+        capture_output=True,
+        text=True,
+        timeout=60,
+        start_new_session=True,
+    )
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash not available")
+@pytest.mark.spec("pod.up-warns-when-the-id-never-arrives")
+def test_up_warns_a_pod_may_exist_when_the_create_call_itself_fails(tmp_path: Path):
+    # The transport half of the same window, and the one the -m 30 timeout made likelier:
+    # under `set -euo pipefail` a curl that exits non-zero (28 timeout, 56 reset) fails the
+    # ASSIGNMENT, so the shell leaves at that line — in front of the `[ -z "$pod_id" ]`
+    # branch that carries the warning and in front of every trap. The provider may already
+    # have created the pod. Asserted by RUNNING the script against a stub curl that exits
+    # 28, because the warning's presence in the source proves only that it was written.
+    proc = _run_up_with_stub_curl(tmp_path, "#!/bin/sh\nexit 28\n")
+
+    assert proc.returncode != 0, "a failed create must not report success"
+    assert "may have been created" in proc.stderr, (
+        "a create call that fails in transport must warn that a pod may be live and "
+        f"billing; got: {proc.stderr!r}"
+    )
+    assert "stub-pod-name" in proc.stderr, (
+        "the warning must name the pod so the console can be checked"
+    )
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash not available")
+@pytest.mark.spec("pod.up-warns-when-the-id-never-arrives")
+def test_up_warns_a_pod_may_exist_when_the_create_call_is_interrupted(tmp_path: Path):
+    # The signal half. Ctrl-C during the create call is the same exposure with a person
+    # attached: the request may have reached the provider, and the teardown traps are not
+    # installed until the id is known. The stub signals its own process group, which
+    # start_new_session has made the script's, exactly as a terminal signals a foreground job.
+    proc = _run_up_with_stub_curl(tmp_path, "#!/bin/sh\nkill -INT 0\nsleep 5\n")
+
+    assert proc.returncode != 0, "an interrupted create must not report success"
+    assert "may have been created" in proc.stderr, (
+        "an interrupt during the create call must warn that a pod may be live and "
+        f"billing; got: {proc.stderr!r}"
+    )
+
+
+@pytest.mark.spec("pod.up-http-port-opt-in")
+def test_up_requests_only_the_tunnelled_port_by_default():
+    # The provider serves an HTTP-exposed port at a PUBLIC, UNAUTHENTICATED URL, and
+    # ComfyUI has no auth of its own. Publishing it must be a decision, not a default —
+    # the shipped `pod.up-enables-ssh` scenario says "without exposing a public port".
+    assert _up_payload_ports() == ["22/tcp"]
+
+
+@pytest.mark.spec("pod.up-http-port-opt-in")
+def test_up_publishes_the_http_port_only_when_explicitly_opted_in():
+    ports = _up_payload_ports(RUNPOD_EXPOSE_HTTP="1")
+
+    assert "22/tcp" in ports, "opting into HTTP must not cost the tunnel"
+    assert any("8188" in p for p in ports)
+
+
+@pytest.mark.spec("pod.up-bounded-readiness")
+def test_up_bounds_readiness_with_a_longer_deadline_for_the_fallback():
+    # A pod that reaches RUNNING without becoming reachable bills indefinitely for nothing.
+    # The fallback gets longer because ComfyUI must also finish starting behind the proxy.
+    text = UP.read_text()
+    tunnel_match = re.search(r"READY_DEADLINE_TUNNEL_SECS:-(\d+)", text)
+    proxy_match = re.search(r"READY_DEADLINE_PROXY_SECS:-(\d+)", text)
+    assert tunnel_match, "up.sh declares no tunnelled readiness deadline"
+    assert proxy_match, "up.sh declares no fallback readiness deadline"
+
+    tunnel, proxy = int(tunnel_match.group(1)), int(proxy_match.group(1))
+
+    assert tunnel > 0 and proxy > 0
+    assert proxy > tunnel, f"fallback deadline {proxy}s must exceed tunnelled {tunnel}s"
+
+
+@pytest.mark.spec("pod.up-tears-down-on-timeout")
+def test_up_tears_the_pod_down_when_readiness_expires():
+    # Teardown reuses down.sh so there is ONE code path that stops billing. A hand-rolled
+    # DELETE here would be a second one to keep correct.
+    text = UP.read_text()
+
+    # Must be an INVOCATION, not a mention. up.sh already prints "tear down with:
+    # infra/down.sh" as advice, and advice does not stop billing.
+    #
+    # The invocation lives in an EXIT trap rather than only in the timeout branch: the
+    # deadline is one way to exit with a live pod, but a failed curl under `set -e`, a
+    # parse error or a Ctrl-C are others, and all of them bill. One trap covers the class.
+    trap_line = next(
+        (ln for ln in text.splitlines() if ln.startswith("trap ") and "EXIT" in ln), ""
+    )
+    assert trap_line, "up.sh installs no EXIT trap, so an abnormal exit leaves a pod billing"
+    assert "down.sh" in trap_line, "the EXIT trap must execute down.sh"
+    assert 'rc" -eq 0' in trap_line, "the trap must not tear down a pod on a successful exit"
+    assert "trap - EXIT" in text, "the success path must hand the pod over, not tear it down"
+    assert "DELETE" not in text, "up.sh must not hand-roll its own delete"
+
+
+@pytest.mark.spec("pod.up-polls-the-path-in-use")
+def test_up_accepts_proxy_readiness_when_the_http_port_is_published():
+    # Measured 2026-09-09/10: EU-RO-1 is capacity-starved, so pods reach RUNNING with no
+    # publicIp and no portMappings — the tunnel can never be reached. The proxy route needs
+    # no public IP and works exactly then, so waiting LONGER for an address that will never
+    # arrive tears down a pod that was reachable all along. Readiness must test the route in
+    # use, not a different one.
+    # Asserted against the probe's own CODE line, not the file. An earlier version of this
+    # test checked `"system_stats" in text` and sliced the file between two string anchors;
+    # both were satisfied by the pre-fix script — the slice caught an unrelated EXPOSE_HTTP
+    # check in the success branch, and the surviving assertion matched the explanatory
+    # COMMENT above the probe. Deleting the whole fix but keeping its comment left it green.
+    code = [ln for ln in UP.read_text().splitlines() if not ln.strip().startswith("#")]
+
+    probes = [ln for ln in code if "system_stats" in ln]
+    assert probes, "up.sh does not probe the render server on the published HTTP route"
+    probe = probes[0]
+
+    assert "PROXY_URL" in probe, "the probe must target the published proxy route"
+    assert "EXPOSE_HTTP" in probe, "the proxy probe must be conditional on opting in"
+    assert any("proxy_ready" in ln and "=" in ln for ln in code), (
+        "a pod reachable only over the proxy must be recorded as ready, not torn down"
+    )
+
+
+# --- build-image publishes what the pod pulls (change 0004, D9) --------------
+
+
+@pytest.mark.spec("pod.image-prune-is-default-branch-only")
+def test_the_registry_prune_never_runs_off_the_default_branch():
+    # Measured 2026-09-10. `latest` is tagged only on the default branch, but the prune
+    # step ran on EVERY push — so running build-image against a feature branch pushed a
+    # sha- tag and then deleted every older version, INCLUDING the only `latest` that
+    # existed. `up.sh` defaults to :latest, so three pods failed with
+    # IMAGE_NOT_FOUND/manifest unknown against a registry holding one sha- tag.
+    #
+    # A green workflow run is not the check: that run WAS green. The destructive step has
+    # to be gated on the branch that also produces the tag it is allowed to supersede.
+    text = BUILD_IMAGE.read_text()
+    prune = [ln for ln in text.splitlines() if "delete-package-versions" in ln]
+    assert prune, "build-image no longer prunes; delete this guard with the step"
+
+    block = text.split("delete-package-versions", 1)[1]
+    guarded = "default_branch" in text.split("delete-package-versions")[0].rsplit("- name:", 1)[-1]
+    assert guarded, (
+        "the prune step must be gated on the default branch — off it, the run deletes "
+        "the `latest` it cannot republish"
+    )
+    assert "min-versions-to-keep" in block
+
+
+@pytest.mark.spec("pod.image-branch-runs-keep-latest")
+def test_the_image_the_pod_pulls_by_default_is_the_one_the_workflow_tags():
+    # up.sh's default image reference and the workflow's raw tag are one string. If the
+    # workflow stops emitting `latest`, every pod created without RUNPOD_IMAGE fails to
+    # pull — which is exactly what happened, and nothing in the suite noticed.
+    workflow = BUILD_IMAGE.read_text()
+    up = UP.read_text()
+
+    assert "value=latest" in workflow, "build-image no longer publishes a `latest` tag"
+    assert ":latest}" in up or ':latest"' in up or ":latest" in up, (
+        "up.sh no longer defaults to :latest — retire this pairing deliberately"
+    )
+
+
+# --- the readiness loop sees a dead container (change 0004, D10) -------------
+
+
+def _up_readiness_fields(pod_json: str) -> list[str]:
+    """Run up.sh's readiness parser over one provider response; return its fields.
+
+    Executed rather than pattern-matched, like ``_up_payload_ports`` — this asserts what
+    the loop actually reads out of the response, not what its source appears to say.
+    """
+    match = re.search(r"python3 -c '\n(import sys, json\n.*?)\n'", UP.read_text(), re.S)
+    assert match, "up.sh no longer contains the inline readiness parser"
+    proc = subprocess.run(
+        [sys.executable, "-c", match.group(1)],
+        input=pod_json,
+        env={"PATH": os.environ["PATH"]},
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return proc.stdout.split()
+
+
+@pytest.mark.spec("pod.up-fails-fast-on-a-dead-container")
+def test_the_readiness_parser_reports_the_container_status():
+    # Measured 2026-09-10: three pods whose image could not be pulled sat at EXITED within
+    # seconds, and up.sh waited out its FULL deadline on each — it reads only publicIp and
+    # portMappings, so a container that died at second 5 looks exactly like one still
+    # starting. The status is in the same response the loop already parses.
+    #
+    # `status` is the tolerated fallback spelling, kept because it costs one `or` and the
+    # documented field is asserted by its own test below.
+    fields = _up_readiness_fields('{"publicIp": null, "portMappings": null, "status": "EXITED"}')
+
+    assert "EXITED" in fields, "the readiness parser discards the container status"
+
+
+@pytest.mark.spec("pod.up-fails-fast-on-a-dead-container")
+def test_the_readiness_parser_reads_the_status_field_the_provider_documents():
+    # The field is `desiredStatus`, not `status`. RunPod's published OpenAPI document for
+    # https://rest.runpod.io/v1 — the exact server this script calls — defines
+    # components.schemas.Pod with 34 properties, among them `desiredStatus`
+    # (enum RUNNING|EXITED|TERMINATED, "the current expected status of a Pod"). There is no
+    # `status` property at all. A parser reading `status` therefore never sees a dead
+    # container in production, and fails open forever — the check exists but never fires.
+    fields = _up_readiness_fields(
+        '{"id": "abc", "desiredStatus": "EXITED", "publicIp": null, "portMappings": null}'
+    )
+
+    assert "EXITED" in fields, (
+        "the readiness parser reads a status field the provider's Pod schema does not have"
+    )
+
+
+@pytest.mark.spec("pod.up-fails-fast-on-a-dead-container")
+def test_a_missing_status_field_is_not_treated_as_a_dead_container():
+    # Fail-open on purpose. The field name is now the one the provider's published Pod
+    # schema carries (`desiredStatus`), but no live pod has been observed through this
+    # loop and a parse test cannot prove what the provider returns. So an absent status
+    # must read as "keep waiting", exactly as before, and only an explicit terminal state
+    # aborts. That way shipping this unverified cannot regress a pod that would otherwise
+    # have come up.
+    fields = _up_readiness_fields('{"publicIp": null, "portMappings": null}')
+
+    assert "EXITED" not in fields and "TERMINATED" not in fields
+
+
+@pytest.mark.spec("pod.up-fails-fast-on-a-dead-container")
+def test_up_aborts_on_a_terminal_container_status():
+    # Aborting means exit under `set -e`, which is an exit, which is the EXIT trap — so
+    # the dead pod is torn down rather than left billing out the rest of the deadline.
+    code = [ln for ln in UP.read_text().splitlines() if not ln.strip().startswith("#")]
+    text = "\n".join(code)
+
+    assert "EXITED" in text and "TERMINATED" in text, (
+        "up.sh does not recognise a terminal container status"
+    )
+    assert "DELETE" not in text, "up.sh must still not hand-roll its own delete"
+
+
+# --- check_face.py runs as documented (change 0004, D10) ---------------------
+
+
+@pytest.mark.spec("faces.check-face-runs-as-documented")
+def test_check_face_can_import_the_package_when_run_as_a_script():
+    # `python scripts/check_face.py` puts scripts/ on sys.path, NOT the repo root, and
+    # `[tool.uv] package = false` means the package is never installed into the venv —
+    # so the `from synthetic_portraits.faces import ensure_antelopev2` that 422fa03 added
+    # for security S3 cannot resolve. The documented invocation has been broken since
+    # 2026-08-10; the unit tests never caught it because they inject a fake detector and
+    # never reach that import.
+    #
+    # sys.path[0] = scripts/ and a foreign cwd together reproduce exactly what Python does
+    # for a script under scripts/, with no chance of the working directory rescuing it.
+    code = (
+        "import sys; sys.path.insert(0, sys.argv[1]); "
+        "import check_face; import synthetic_portraits; print('ok')"
+    )
+    proc = subprocess.run(
+        [sys.executable, "-c", code, str(CHECK_FACE.parent)],
+        cwd=tempfile.gettempdir(),
+        env={"PATH": os.environ["PATH"]},
+        capture_output=True,
+        text=True,
+    )
+
+    assert proc.returncode == 0, (
+        f"check_face.py cannot import the package when run as a script: {proc.stderr}"
+    )
+    assert "ok" in proc.stdout

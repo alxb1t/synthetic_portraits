@@ -17,8 +17,17 @@ insightface, a model download, or a real image.
 from __future__ import annotations
 
 import argparse
+import sys
 from collections.abc import Callable, Sequence
 from pathlib import Path
+
+# `[tool.uv] package = false` — this is a virtual project, so `synthetic_portraits` is
+# never installed into the venv. Tests import it because pytest puts the repo root on
+# sys.path; a script under scripts/ gets its OWN directory there instead and cannot.
+# That was harmless until the antelopev2 staging import below was added (security S3), and
+# it broke the documented `uv run --group faces scripts/check_face.py` invocation. `uv run`
+# does not change this — it execs Python, and Python chooses sys.path[0].
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 # A detector maps an image path to the number of detectable faces in it.
 Detector = Callable[[Path], int]

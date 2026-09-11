@@ -9,6 +9,7 @@ lazily imported (never at module load) so the runtime stays stdlib-only until it
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import re
 from pathlib import Path
@@ -19,6 +20,7 @@ from synthetic_portraits.faces import (
     _ANTELOPEV2_BASE,
     _ANTELOPEV2_REV,
     _ANTELOPEV2_SHA256,
+    _FACE_DEPENDENCY_MODULES,
     FaceDetector,
     FakeFaceDetector,
     ensure_antelopev2,
@@ -154,3 +156,36 @@ def test_ensure_antelopev2_aborts_on_checksum_mismatch(tmp_path):
 
     assert not (tmp_path / bad).exists()  # nothing half-verified is left behind
     assert not (tmp_path / f"{bad}.partial").exists()
+
+
+@pytest.mark.spec("faces.cli-missing-dep-named")
+def test_the_declared_dependency_set_covers_what_the_detector_actually_imports():
+    """The pre-flight list and the detector's imports must not drift apart.
+
+    `missing_face_dependencies()` reports a hand-maintained tuple, while the modules that
+    actually have to be importable are the ones `AntelopeV2FaceDetector.__init__` names.
+    Nothing ties the two together, so adding an import to the detector would leave the
+    pre-flight check passing and hand the operator back the bare ModuleNotFoundError that
+    change 0004 exists to prevent. Parsing the source keeps the check honest without
+    importing the optional group.
+    """
+    faces_py = REPO_ROOT / "synthetic_portraits" / "faces.py"
+    detector = next(
+        node
+        for node in ast.walk(ast.parse(faces_py.read_text()))
+        if isinstance(node, ast.ClassDef) and node.name == "AntelopeV2FaceDetector"
+    )
+
+    imported = set()
+    for node in ast.walk(detector):
+        if isinstance(node, ast.Import):
+            imported.update(alias.name.split(".")[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            imported.add(node.module.split(".")[0])
+
+    assert imported, "expected the detector to import its heavy deps lazily in __init__"
+    missing = imported - set(_FACE_DEPENDENCY_MODULES)
+    assert not missing, (
+        f"AntelopeV2FaceDetector imports {sorted(missing)}, which the pre-flight check "
+        f"does not report; add them to _FACE_DEPENDENCY_MODULES"
+    )

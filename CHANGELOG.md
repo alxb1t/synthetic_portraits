@@ -11,6 +11,134 @@ files and the annotated tag are one line — they agree, or the release halts.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-11
+
+### Changed
+
+- **`README.md` records three things a failed session proved were missing.** The **CLI** needs
+  `uv run --group faces`, not only `scripts/check_face.py` — the group is now step 0, before a
+  pod is brought up, because a pod started first is already billing when the import fails. The
+  **SSH tunnel is named as the only supported render path**, with `RUNPOD_EXPOSE_HTTP` written
+  up as a public, unauthenticated, un-render-tested escape hatch. And `up.sh`'s self-teardown
+  deadlines are stated where the pod is brought up.
+
+### Fixed
+
+- **`up.sh` is meant to fail fast when the container is dead instead of waiting out the deadline.** The
+  readiness loop read only `publicIp` and `portMappings`, so a container that exited seconds after start
+  looked exactly like one still coming up — three such pods each burned the full deadline. The same
+  response carries the container's `desiredStatus` (the field the provider's published `Pod` schema
+  defines; an earlier cut of this fix read a `status` that does not exist there, so it could never have
+  fired), and the loop now aborts on `EXITED`/`TERMINATED` through the EXIT trap. **Not yet verified
+  against a live pod** — the offline tests exercise the parser, not the provider. Fail-open: an absent
+  status still means "keep waiting", so this cannot tear down a pod that would have come up.
+
+- **`scripts/check_face.py` runs as documented again.** This is a virtual project
+  (`[tool.uv] package = false`), so the package is never installed into the venv, and Python puts a
+  script's own directory on `sys.path` rather than the repo root. That became fatal when the pinned
+  antelopev2 staging import was added on 2026-08-10, and
+  `uv run --group faces scripts/check_face.py …` has raised `ModuleNotFoundError` ever since — the
+  unit tests never saw it because they inject a fake detector. The script now puts the repo root on
+  `sys.path` itself.
+
+- **`build-image` no longer deletes the image the pod pulls.** `latest` is tagged only on the default
+  branch, but the "keep only the newest version" prune ran on every push — so running the workflow
+  against a feature branch pushed a `sha-` tag and then deleted the only `latest` in the registry. Every
+  pod created from `up.sh`'s default image reference then failed with `IMAGE_NOT_FOUND: manifest
+  unknown`. The prune is now gated on the default branch, which is the only branch that can republish
+  what it supersedes. Until a `build-image` run lands on `main`, pass
+  `RUNPOD_IMAGE=ghcr.io/<owner>/synthetic_portraits:sha-<commit>` explicitly.
+
+- **A pod can no longer bill through a stalled provider call.** The readiness deadline is tested between
+  loop iterations, so it could only fire if every `curl` inside the loop returned — and `curl` has no
+  default transfer timeout. A half-open connection or a provider-side stall blocked in the loop while the
+  clock ran past the deadline: `down.sh` was never reached, and the EXIT trap could not help because the
+  script was not exiting. Every provider call in `infra/up.sh` and `infra/down.sh` now carries
+  `-m 30 --connect-timeout 10`, so a stall fails under `set -e` — which is an exit, which is the trap.
+  `down.sh`'s DELETE additionally tolerates the timeout so it lands on the path that names the console,
+  rather than exiting silently at the one moment the operator needs telling.
+
+- **Pod creation that fails while reading the id now says a pod may exist.** `POST /pods` can succeed
+  server-side while the id never reaches the client, which leaves no `.pod_id` for `down.sh` to delete
+  and is the one window in front of the EXIT trap that no trap can cover. The path printed "pod creation
+  failed", which an operator reasonably reads as "nothing was created" — while a pod billed unattended.
+  It now warns explicitly and names the pod for a console check — **on every way out of that window**,
+  not only the one where a response arrives. Under `set -euo pipefail` a `curl` that times out or is
+  interrupted failed the assignment, so the script left *at that line*, in front of the branch carrying
+  the warning and in front of every trap; adding a 30 s timeout to the create call made that the likelier
+  failure. The warning is now a function reached from a checked create call, and a signal trap is
+  installed before the request rather than after the id is known.
+
+- **Pod readiness now polls the route actually in use.** `RUNPOD_EXPOSE_HTTP=1` published the
+  proxy port but the readiness loop still waited only for a public IP — so in the exact
+  condition the flag exists for, it waited *longer* for an address that would never arrive and
+  then tore the pod down. Measured 2026-09-09/10: EU-RO-1 is capacity-starved (`RTX PRO 4500
+  Blackwell` at LOW stock), and two pods reached `RUNNING` with `runtime: null` and were
+  destroyed at the deadline while the proxy route could have served them. With the HTTP port
+  published, the loop now also probes `<proxy>/system_stats` — the render server itself, not the
+  bare host, which resolves long before ComfyUI is listening.
+
+- **The pod image is buildable again.** `constraints.txt` pinned `numpy==1.26.4` (the Impact
+  Pack's ceiling) alongside `opencv-python-headless==5.0.0.93`, which requires `numpy>=2`. The
+  set was exactly pinned and mutually unsatisfiable, so every `build-image` run ended in
+  `ResolutionImpossible`. `opencv-python-headless` moves to `4.11.0.86` — the version already
+  pinned beside it as `opencv-python`, so the image now resolves one OpenCV rather than two.
+
+  The consequence was not cosmetic: `build-image` had failed on every push to `main` since
+  2026-08-10, so the published `:latest` was still the artefact built from the commit *before*
+  the custom nodes were added. A pod booted from it had an empty `custom_nodes/`, and both
+  shipped graphs failed at submit with `Cannot execute because node
+  UltralyticsDetectorProvider does not exist`.
+
+### Added
+
+- **Every request to ComfyUI now carries an explicit `User-Agent`.** Cloudflare, which fronts
+  a pod when no tunnelled route exists, answers the standard library's default
+  `Python-urllib/3.x` with error 1010 — a user-agent block — so the request never reaches
+  ComfyUI and the failure surfaces as an unexplained transport error. Measured 2026-09-09:
+  `curl` received HTTP 200 where this client received 1010 against the same URL. The header is
+  set at a single `Request` factory inside `ComfyClient`, so no call path can be added later
+  that silently keeps the default. No dependency is added; the runtime stays stdlib-only.
+
+  This makes the provider's HTTP proxy usable as a **diagnostic** channel. It is not a
+  supported render path and has not been render-tested — the SSH tunnel remains the only
+  path this project claims works.
+
+- **The CLI reports a missing `faces` group before it queues anything.** `generate.py`
+  constructs the real detector on every run, so without the optional group it died on
+  `ModuleNotFoundError: No module named 'cv2'` — a transitive module that says nothing about
+  the fix — and only *after* a metered pod was already up. It now fails with
+  `face detection needs the optional 'faces' dependency group; re-run with
+  'uv run --group faces python generate.py ...'`, naming the missing modules as detail.
+
+  Presence is checked with `importlib.util.find_spec`, not by catching `ModuleNotFoundError`
+  around construction: catching would also swallow an unrelated missing module raised from
+  inside the detector and mislabel it. The check runs **only** when no detector was injected,
+  so the seam is intact and no test needs the group.
+
+- **`infra/up.sh` now tears down a pod it cannot reach.** Readiness was a 300 s wait that
+  ended in a printed warning and a *live, billing* pod. RunPod repeatedly returned pods on
+  2026-09-08/09 that reached `RUNNING` with `runtime: null`, no `publicIp` and no
+  `portMappings` — reachable only over their SSH proxy, which cannot carry a port forward.
+  The wait is now a bounded deadline (180 s tunnelled, 420 s when HTTP exposure is opted
+  into) after which `down.sh` is invoked and the script exits non-zero. Teardown reuses
+  `down.sh` rather than a hand-rolled DELETE, so one code path stops billing.
+
+- **`RUNPOD_EXPOSE_HTTP`** — opt-in publication of ComfyUI's port on RunPod's HTTP proxy,
+  **default off**. The proxy needs no public IP, so it is the only route that works when the
+  tunnel cannot; it is also a public, unauthenticated URL fronting a ComfyUI with no auth,
+  which is why it is a deliberate act rather than a default. Requirement `pod.up-enables-ssh`
+  ("reached without exposing a public port") continues to describe the default path. The
+  proxy remains a **diagnostic** channel and is not render-tested.
+
+- **An offline consistency guard for the pinned set** (`tests/test_infra.py`). The existing
+  `pod.constraints-fully-pinned` scenario is *satisfied* by a set pip cannot resolve, which is
+  how the contradiction above shipped and stayed red for a month. Two new scenarios assert what
+  that one cannot: the two OpenCV distributions name the same upstream version
+  (`pod.opencv-pins-agree`), and the `numpy` pin can hold beside every other pin
+  (`pod.constraints-mutually-satisfiable`). It is a regression guard, not a resolver — no test
+  here may reach a package index, and `build-image` remains the real proof.
+
 ## [0.3.0] — 2026-09-02
 
 ### Added

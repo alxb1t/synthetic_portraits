@@ -4,8 +4,9 @@ A self-hosted, headless pipeline: **text prompt → photoreal upper-body image o
 who does not exist** — face, torso, arms, hands, and clothes — using open SDXL models
 (**RealVisXL V5.0**) via **ComfyUI** on an on-demand **RunPod** GPU.
 
-**Status:** **v0.3.0** is the latest release — a declared quality gate, the in-repo change
-method under `openspec/`, and a living spec tree backfilled to current functionality.
+**Status:** **v0.4.0** is the latest release — a buildable pod image again, a registry prune
+that no longer deletes the tag the pod pulls, and pod bring-up that is bounded, tears down what
+it cannot reach, and fails fast on a dead container.
 See [`CHANGELOG.md`](CHANGELOG.md).
 
 One prompt → one person; another prompt → another person. Clothing and pose are driven from
@@ -50,32 +51,55 @@ repo → GHCR Docker image → RunPod pod (RTX-class GPU, cu128) → network vol
 Prerequisites: [uv](https://docs.astral.sh/uv/), a RunPod account, and the config in `.env`
 (copy `.env.example` → `.env`, fill in `RUNPOD_API_KEY`, `RUNPOD_NETWORK_VOLUME_ID`, etc.).
 
+> **The CLI needs the `faces` group, not just `check_face.py`.** `generate.py` builds the real
+> antelopev2 detector on every run, so install the group **before** bringing a pod up — it fails
+> fast and names the group if you forget, but a pod you started first is already billing.
+
 ```bash
+# 0. Install the optional face-detection group. The CLI needs it, not only step 3.
+uv sync --group faces
+
 # 1. Bring up a GPU pod (⚠️ metered — bills per second until you tear it down).
 #    Prints an SSH tunnel command; run it in another shell to expose localhost:8188.
+#    If the pod never becomes reachable, up.sh tears it down itself (180s; 420s with
+#    RUNPOD_EXPOSE_HTTP=1) rather than leaving it billing.
 infra/up.sh
 ssh -i ~/.ssh/id_ed25519_runpod -N -L 8188:localhost:8188 root@<ip> -p <port>
 
 # 2. Generate headless. The hardened default graph (latent hi-res + FaceDetailer) yields a
 #    clean, antelopev2-detectable face at any framing — including full-height, head-to-toe.
-uv run python generate.py \
+uv run --group faces python generate.py \
   --prompt "full body photo of a woman, full height, casual jacket and jeans, front facing" \
   --seed 42 -n 3 --out outputs
 
 # 2b. Same person across shots — point --identity at a hero face (InstantID). Pair it with
 #     --prompts (one prompt per line) to render a same-person character sheet with auto-regenerate.
-uv run python generate.py \
+uv run --group faces python generate.py \
   --identity outputs/hero.png \
   --prompts sheet.txt \
   --seed 42 --out outputs
 
 # 3. Verify every image has exactly one antelopev2-detectable frontal face.
-uv sync --group faces
 uv run --group faces scripts/check_face.py outputs/*.png
 
 # 4. Tear the pod down (stops billing; the network volume persists the models).
 infra/down.sh
 ```
+
+### Reaching the pod: the tunnel is the supported path
+
+`generate.py` drives ComfyUI over the **SSH tunnel**, and that is the only path this project
+claims works. RunPod occasionally issues a pod that reaches `RUNNING` with no public IP and no
+port mapping, which the tunnel cannot reach at all. For that case `RUNPOD_EXPOSE_HTTP=1`
+publishes ComfyUI at `https://<pod id>-8188.proxy.runpod.net`, which needs no public IP.
+
+It is **off by default and deliberately so**: that URL is public and unauthenticated — RunPod's
+docs say the pod id gives "only obscurity, not security" — and ComfyUI has no auth of its own.
+When the provider issues no address at all, `up.sh` hands that URL over as the only route to the
+pod and prints the `--server` invocation for it — readiness there is a `GET /system_stats`, and
+whether a render goes through it is **still unproven**. Prefer the tunnel whenever there is one,
+and tear the pod down promptly: the exposure lasts as long as the pod does. Requests now carry an explicit `User-Agent`, without which Cloudflare rejects the
+stdlib client with error 1010 while answering `curl` normally.
 
 `generate.py` flags: `--prompt` **or** `--prompts <file>` (mutually exclusive — the latter is a
 batch / character sheet), `--identity <hero.png>` (same person via InstantID; auto-selects the
