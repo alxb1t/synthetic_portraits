@@ -4,8 +4,9 @@ A self-hosted, headless pipeline: **text prompt → photoreal upper-body image o
 who does not exist** — face, torso, arms, hands, and clothes — using open SDXL models
 (**RealVisXL V5.0**) via **ComfyUI** on an on-demand **RunPod** GPU.
 
-**Status:** **v0.3.0** is the latest release — a declared quality gate, the in-repo change
-method under `openspec/`, and a living spec tree backfilled to current functionality.
+**Status:** **v0.4.0** is the latest release — a buildable pod image again, a registry prune
+that no longer deletes the tag the pod pulls, and pod bring-up that is bounded, tears down what
+it cannot reach, and fails fast on a dead container.
 See [`CHANGELOG.md`](CHANGELOG.md).
 
 One prompt → one person; another prompt → another person. Clothing and pose are driven from

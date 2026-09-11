@@ -5,4 +5,4 @@ the conventions, and the active change under ``openspec/changes/`` for the decis
 behind them.
 """
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"

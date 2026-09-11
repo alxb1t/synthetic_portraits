@@ -11,6 +11,8 @@ files and the annotated tag are one line — they agree, or the release halts.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-11
+
 ### Changed
 
 - **`README.md` records three things a failed session proved were missing.** The **CLI** needs
