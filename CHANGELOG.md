@@ -11,6 +11,8 @@ files and the annotated tag are one line — they agree, or the release halts.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-05
+
 ### Changed
 
 - **The `Makefile`'s `gate` target is the gate's one declaration.** CI runs `make gate` as one step.
