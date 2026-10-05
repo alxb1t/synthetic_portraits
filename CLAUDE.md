@@ -15,23 +15,15 @@ package is **stdlib-only**, and **no test reaches a GPU or the network**.
 
 ---
 
-## The quality gate — this repo's 5 commands
+## The quality gate
 
-**These** are the commands this repo declares, in `.minions/minions.toml`'s `gate` array, in order:
+**The gate is `make gate`**, run from the repository root; `make -n gate` prints what it runs.
+The `Makefile` declares it and notes each command; CI runs `make gate` too.
 
-- `uv sync --locked` — the environment; certifies what `uv.lock` pins, not whatever `.venv` holds
-- `uv run ruff format --check .` — format, in check mode (a formatter in *rewrite* mode is not it)
-- `uv run ruff check .` — lint (`E,F,I,UP,B,SIM,D,ANN`; `tests/**` exempt from `D1`/`D401`/`ANN`)
-- `uv run ty check` — strict types
-- `uv run pytest -q` — the suite, offline and deterministic
-
-`Makefile`'s `gate` target, `README.md` and CI mirror that array, and `tests/test_gate_mirrors.py` fails
-if any of them drifts from it. `make gate` is the one command a human types.
-
-**`docker build --check` is deliberately *not* in the array** — it needs a running Docker daemon, and the
-array must run on any checkout, offline. `build-image.yml` does a real image build on every push to
+**`docker build --check` is deliberately *not* in the gate** — it needs a running Docker daemon, and the
+gate must run on any checkout, offline. `build-image.yml` does a real image build on every push to
 `main`, which subsumes it; run it by hand for image-as-code work. `bash -n` needs no entry either:
-`tests/test_infra.py` already runs it over every shell script, so `pytest -q` carries that axis.
+`tests/test_infra.py` already runs it over every shell script, so the suite carries that axis.
 
 **External effects are faked at four seams**, which is what keeps the suite offline:
 
@@ -86,8 +78,8 @@ owns artifact structure, fetched fresh at authoring time; the `mf-build`, `mf-co
 halting rules and findings contract. This repo keeps no `docs/sdd.md` — a third copy would only drift.
 
 The tooling is **operator tooling, recorded and not pinned**: `@fission-ai/openspec@1.11.0` on `PATH`,
-initialized with `--tools none`. It is deliberately **not** in the gate array — nothing in CI runs it, so a
-moving version can never turn CI red. The binding authority for the code is the array, whose last entry is
+initialized with `--tools none`. It is deliberately **not** in the gate — nothing in CI runs it, so a
+moving version can never turn CI red. The binding authority for the code is the gate, whose last command is
 `pytest -q`; `openspec/specs/` binds every scenario `Key:` to a test by marker, but nothing enforces it.
 
 ---
@@ -100,7 +92,7 @@ moving version can never turn CI red. The binding authority for the code is the 
 - **`infra/`** — pod up/down/boot scripts. **`workflows/`** — the ComfyUI API-format graphs.
   **`scripts/`** — `check_face.py`, the offline detectability assertion. **`examples/`** — the demo set.
 - **`openspec/`** — the living specs and the changes. **`.github/`** — CI and the image build.
-- **`.minions/`** — run artefacts, **gitignored**; `minions.toml`, the gate array, is the one tracked file.
+- **`.minions/`** — MinionsFactory's run artefacts, gitignored whole.
 - **Everything a run reads or writes is inside the repository.** No path outside the repo is resolved.
 
 ---

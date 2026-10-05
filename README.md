@@ -4,9 +4,10 @@ A self-hosted, headless pipeline: **text prompt → photoreal upper-body image o
 who does not exist** — face, torso, arms, hands, and clothes — using open SDXL models
 (**RealVisXL V5.0**) via **ComfyUI** on an on-demand **RunPod** GPU.
 
-**Status:** **v0.4.0** is the latest release — a buildable pod image again, a registry prune
-that no longer deletes the tag the pod pulls, and pod bring-up that is bounded, tears down what
-it cannot reach, and fails fast on a dead container.
+**Status:** **v0.5.0** is the latest release — the quality gate is declared once, in the
+`Makefile`, and CI runs `make gate`. It follows v0.4.0: a buildable pod image again, a registry
+prune that no longer deletes the tag the pod pulls, and pod bring-up that is bounded, tears down
+what it cannot reach, and fails fast on a dead container.
 See [`CHANGELOG.md`](CHANGELOG.md).
 
 One prompt → one person; another prompt → another person. Clothing and pose are driven from
@@ -126,22 +127,12 @@ A unit of work is done when the gate is green — run, never summarized. One com
 make gate
 ```
 
-It runs the five commands declared in `.minions/minions.toml`'s `gate` array, in order:
-
-```bash
-uv sync --locked
-uv run ruff format --check .
-uv run ruff check .
-uv run ty check
-uv run pytest -q
-```
+`make -n gate` prints its commands; the root `Makefile` declares them, and CI runs `make gate` too.
 
 They cover, in order: the environment (certifying what `uv.lock` pins), format, lint, types
-and the test suite. That array is the single source of truth — `Makefile`,
-`.github/workflows/ci.yml`, this section and `CLAUDE.md` mirror it, and
-`tests/test_gate_mirrors.py` fails if any of them drifts. `docker build --check` is
-deliberately outside the array (it needs a running Docker daemon); the image is built for
-real by `.github/workflows/build-image.yml` on every push to `main`.
+and the test suite. `docker build --check` is deliberately outside the gate (it needs a
+running Docker daemon); the image is built for real by `.github/workflows/build-image.yml`
+on every push to `main`.
 
 Work is defined before it is built, as a change under `openspec/changes/`. See
 [`CLAUDE.md`](CLAUDE.md) for how a change is cut here.

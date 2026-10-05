@@ -1,6 +1,6 @@
 [project]
 name = "synthetic-portraits"
-version = "0.4.0"
+version = "0.5.0"
 description = "Text prompt -> photoreal upper-body image of a person who does not exist (SDXL via ComfyUI on RunPod)."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -34,7 +34,7 @@ testpaths = ["tests"]
 addopts = "-q"
 # Registered so a marker can never be silently ignored. `spec` carries the spec-to-test
 # binding: every scenario Key under openspec/ has at least one marked test. No checker
-# enforces that and none is in the gate array (change 0003, design D4 as updated by D12).
+# enforces that and none is in the gate (change 0003, design D4 as updated by D12).
 markers = [
     "spec: binds this test to a spec scenario Key, as `spec(\"<capability>.<scenario>\")`",
     "spec_exempt: structural test with no scenario to bind, as `spec_exempt(\"<reason>\")`",

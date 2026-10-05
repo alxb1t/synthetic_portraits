@@ -11,6 +11,14 @@ files and the annotated tag are one line — they agree, or the release halts.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-05
+
+### Changed
+
+- **The `Makefile`'s `gate` target is the gate's one declaration.** CI runs `make gate` as one step.
+  `.minions/minions.toml` and `tests/test_gate_mirrors.py` are deleted: with one declaration, no copy is left to hold equal.
+- **`CLAUDE.md` and `README.md` point at the `Makefile` and list no command.** A list in prose is a copy.
+
 ## [0.4.0] - 2026-09-11
 
 ### Changed
