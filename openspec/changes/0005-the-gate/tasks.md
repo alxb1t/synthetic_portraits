@@ -5,7 +5,7 @@ Declare once, then prose. [design](design.md) is authoritative for how; each pha
 ## Progress
 
 - [x] 1 — Declare once
-- [ ] 2 — Prose
+- [x] 2 — Prose
 
 ## 1 — Declare once
 
@@ -28,12 +28,12 @@ The `Makefile` becomes the one declaration; the toml and its test go together ([
 
 `CLAUDE.md` and `README.md` point at the `Makefile` and list no command ([D4](design.md#d4)).
 
-- [ ] 2.1 Rewrite `CLAUDE.md:18-34`, `:88-91` and `:103` per [D4](design.md#d4).
+- [x] 2.1 Rewrite `CLAUDE.md:18-34`, `:88-91` and `:103` per [D4](design.md#d4).
       Verify: `grep -c 'uv run\|uv sync\|array\|minions.toml' CLAUDE.md` prints `0`, and
       `grep -c 'make -n gate' CLAUDE.md` prints `1`.
-- [ ] 2.2 Rewrite `README.md:129-145` per [D4](design.md#d4).
+- [x] 2.2 Rewrite `README.md:129-145` per [D4](design.md#d4).
       Verify: `grep -c 'array\|minions.toml\|gate_mirrors' README.md` prints `0`, and
       `grep -c 'make -n gate' README.md` prints `1`.
-- [ ] 2.3 **HALT CHECK** — no copy survives outside history.
+- [x] 2.3 **HALT CHECK** — no copy survives outside history.
       Verify: `grep -rln 'minions.toml\|gate_mirrors' . --exclude-dir=.git --exclude-dir=.venv --exclude-dir=.minions --exclude-dir=openspec --exclude-dir=.pytest_cache --exclude-dir=__pycache__ --exclude=CHANGELOG.md`
       prints nothing.
