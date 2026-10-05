@@ -1,9 +1,5 @@
 name: CI
 
-# One step per command in the `gate` array declared in `.minions/minions.toml`, in the
-# same order. That array is the source of truth; this file is one of its four mirrors
-# (Makefile · ci.yml · README.md · CLAUDE.md). Change one, change all four.
-
 on:
   push:
   pull_request:
@@ -18,18 +14,7 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v5
 
-      # Certifies what uv.lock pins, not whatever the runner resolves.
-      - name: Sync the locked environment
-        run: uv sync --locked
-
-      - name: Format (ruff)
-        run: uv run ruff format --check .
-
-      - name: Lint (ruff)
-        run: uv run ruff check .
-
-      - name: Type-check (ty)
-        run: uv run ty check
-
-      - name: Test (pytest)
-        run: uv run pytest -q
+      # The gate is the Makefile's `gate` target. CI runs it rather than keeping
+      # its own copy of the commands, which would drift.
+      - name: Gate
+        run: make gate

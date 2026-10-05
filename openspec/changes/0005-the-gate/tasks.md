@@ -4,24 +4,24 @@ Declare once, then prose. [design](design.md) is authoritative for how; each pha
 
 ## Progress
 
-- [ ] 1 — Declare once
+- [x] 1 — Declare once
 - [ ] 2 — Prose
 
 ## 1 — Declare once
 
 The `Makefile` becomes the one declaration; the toml and its test go together ([D8](design.md#d8)).
 
-- [ ] 1.1 Rewrite `Makefile`'s header and add a column-0 comment above each command, per [D1](design.md#d1).
+- [x] 1.1 Rewrite `Makefile`'s header and add a column-0 comment above each command, per [D1](design.md#d1).
       Verify: `make -n gate` prints exactly `uv sync --locked`, `uv run ruff format --check .`,
       `uv run ruff check .`, `uv run ty check`, `uv run pytest -q`, one a line, and no `#` line.
-- [ ] 1.2 Delete `.minions/minions.toml` with `git rm`, per [D1](design.md#d1).
+- [x] 1.2 Delete `.minions/minions.toml` with `git rm`, per [D1](design.md#d1).
       Verify: `git ls-files .minions` prints nothing.
-- [ ] 1.3 Delete `tests/test_gate_mirrors.py` with `git rm`, as [D3](design.md#d3) authorizes.
+- [x] 1.3 Delete `tests/test_gate_mirrors.py` with `git rm`, as [D3](design.md#d3) authorizes.
       Verify: `test ! -e tests/test_gate_mirrors.py` exits 0.
-- [ ] 1.4 Replace `.github/workflows/ci.yml:21-35` with the one `Gate` step, and delete `:3-5`, per
+- [x] 1.4 Replace `.github/workflows/ci.yml:21-35` with the one `Gate` step, and delete `:3-5`, per
       [D2](design.md#d2). Verify: `grep -c 'run:' .github/workflows/ci.yml` prints `1`, and
       `grep -c 'run: make gate' .github/workflows/ci.yml` prints `1`.
-- [ ] 1.5 Replace `.gitignore:10-13` with the lines in [D5](design.md#d5).
+- [x] 1.5 Replace `.gitignore:10-13` with the lines in [D5](design.md#d5).
       Verify: `grep -c '^\.minions/$' .gitignore` prints `1`, and `grep -c 'minions.toml' .gitignore` prints `0`.
 
 ## 2 — Prose

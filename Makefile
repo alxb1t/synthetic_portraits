@@ -1,15 +1,16 @@
-# The quality gate — the one command a human types.
-#
-# These recipe lines mirror the `gate` array in `.minions/minions.toml` byte for byte.
-# That array is the source of truth; this is one of its four mirrors
-# (Makefile · .github/workflows/ci.yml · README.md · CLAUDE.md), and
-# tests/test_gate_mirrors.py fails if any of them drifts from it.
+# The gate: this recipe is its one declaration. CI and the MinionsFactory skills run
+# `make gate`; `make -n gate` prints what it runs.
 
 .PHONY: gate
 
 gate:
+# the environment: certifies what uv.lock pins, not whatever .venv holds
 	uv sync --locked
+# format, in check mode (a formatter in rewrite mode is not the check)
 	uv run ruff format --check .
+# lint: E,F,I,UP,B,SIM,D,ANN; tests/** exempt from D1, D401 and ANN
 	uv run ruff check .
+# strict types
 	uv run ty check
+# the suite, offline and deterministic
 	uv run pytest -q

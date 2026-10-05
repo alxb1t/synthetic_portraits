@@ -7,10 +7,8 @@ outputs/
 # Per-run pod state written by infra/up.sh, read by infra/down.sh
 infra/.pod_id
 
-# Run artefacts: findings, frozen diffs, the deferred-work file. The declared gate
-# array is the one tracked file in here.
-.minions/*
-!.minions/minions.toml
+# MinionsFactory's run artefacts: findings, frozen diffs, the backlog. All local.
+.minions/
 
 # macOS
 .DS_Store
