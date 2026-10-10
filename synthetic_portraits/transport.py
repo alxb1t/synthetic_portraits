@@ -28,6 +28,7 @@ __all__ = [
     "ComfyTimeoutError",
     "ComfyTransport",
     "FakeComfyClient",
+    "ReportingTransport",
     "await_outputs",
 ]
 
@@ -68,6 +69,15 @@ class ComfyTransport(Protocol):
 
     def get_image(self, filename: str, subfolder: str, folder_type: str) -> bytes:
         """Fetch rendered image bytes from ``/view``."""
+        ...
+
+
+@runtime_checkable
+class ReportingTransport(ComfyTransport, Protocol):
+    """A transport that also reports on its server: what ``--pod`` waits on before a render."""
+
+    def system_stats(self) -> dict[str, Any]:
+        """Fetch the server's report on itself; raise :class:`ComfyError` if it does not answer."""
         ...
 
 
@@ -187,6 +197,10 @@ class ComfyClient:
         req = self._request(f"{self.base_url}/view?{query}")
         return self._bytes(req)
 
+    def system_stats(self) -> dict[str, Any]:
+        """Fetch ``/system_stats``, the server's report on itself; raise if it does not answer."""
+        return self._json(self._request(f"{self.base_url}/system_stats"))
+
     # -- low-level request helpers --
 
     def _bytes(self, req: Request) -> bytes:
@@ -265,22 +279,33 @@ class FakeComfyClient:
         view_bytes: bytes = _ONE_PX_PNG,
         queue_error: str | None = None,
         execution_error: str | None = None,
+        silent_stats: int = 0,
     ) -> None:
         """Script the fake server: how many polls stay pending, what outputs to return.
 
         ``queue_error`` rejects at queue time and ``execution_error`` fails during
         execution, so both error paths of :func:`await_outputs` are reachable offline.
+        ``silent_stats`` is how many ``system_stats`` calls fail before the server answers.
         """
         self.polls_until_done = polls_until_done
         self.outputs = _DEFAULT_OUTPUTS if outputs is None else outputs
         self.view_bytes = view_bytes
         self.queue_error = queue_error
         self.execution_error = execution_error
+        self.silent_stats = silent_stats
 
         self.uploads: list[tuple[str, bytes]] = []
         self.queued_workflows: list[dict[str, Any]] = []
         self.requested_views: list[tuple[str, str, str]] = []
         self.poll_count = 0
+        self.stats_count = 0
+
+    def system_stats(self) -> dict[str, Any]:
+        """Fail as a server not yet up would, ``silent_stats`` times; then report."""
+        self.stats_count += 1
+        if self.stats_count <= self.silent_stats:
+            raise ComfyError("cannot reach ComfyUI: connection refused")
+        return {"system": {"comfyui_version": "fake"}, "devices": []}
 
     def upload_image(self, filename: str, data: bytes) -> str:
         """Record the upload and echo the filename back, as ComfyUI would."""

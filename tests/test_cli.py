@@ -2,11 +2,22 @@
 
 from __future__ import annotations
 
+import http.client
+import re
+import signal
+import subprocess
+import sys
+import tomllib
+from contextlib import contextmanager
+from pathlib import Path
+
+import gpunit
 import pytest
+from conftest import REPO_ROOT
 
 from synthetic_portraits import cli
 from synthetic_portraits.faces import FakeFaceDetector
-from synthetic_portraits.transport import FakeComfyClient
+from synthetic_portraits.transport import ComfyError, ComfyExecutionError, FakeComfyClient
 
 _ACCEPT = FakeFaceDetector([1])  # every render passes the face check on the first attempt
 
@@ -409,3 +420,312 @@ def test_an_injected_detector_never_consults_the_optional_group(monkeypatch, tmp
     )
 
     assert exit_code == 0
+
+
+# --- --pod: one gpunit session around the batch (change 0006, design D1-D3) ----------
+
+_IMAGE = "ghcr.io/alxb1t/synthetic_portraits@sha256:" + "a" * 64
+_LOCAL_PORT = 18188
+
+
+class _FakeSession:
+    """Stand in for gpunit's open session: an image, and one forwarded port."""
+
+    image = _IMAGE
+
+    def __init__(self):
+        self.ports: list[int] = []
+
+    def port(self, remote: int) -> int:
+        self.ports.append(remote)
+        return _LOCAL_PORT
+
+
+class _FakeOpener:
+    """Stand in for `gpu.open_session`: yield a session, record its open and its close."""
+
+    def __init__(self, *, on_open: BaseException | None = None, on_close: Exception | None = None):
+        self.on_open = on_open
+        self.on_close = on_close
+        self.opened: list[tuple[Path, dict[str, str]]] = []
+        self.closed = False
+        self.session = _FakeSession()
+
+    def __call__(self, root, environ, say):
+        self.opened.append((root, dict(environ)))
+        return self._block()
+
+    @contextmanager
+    def _block(self):
+        if self.on_open is not None:
+            raise self.on_open
+        try:
+            yield self.session
+        finally:
+            self.closed = True
+            if self.on_close is not None:
+                raise self.on_close
+
+
+class _Ordered(FakeComfyClient):
+    """A fake server that logs each call by kind, so their order can be asserted."""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.calls: list[str] = []
+
+    def system_stats(self):
+        self.calls.append("stats")
+        return super().system_stats()
+
+    def queue_prompt(self, workflow):
+        self.calls.append("queue")
+        return super().queue_prompt(workflow)
+
+
+class _Interrupting(FakeComfyClient):
+    """A fake server whose first report is cut by the signal gpunit raises on SIGTERM."""
+
+    def system_stats(self):
+        raise gpunit.Interrupted(signal.SIGTERM)
+
+
+def _on_pod(tmp_path, opener, client, argv=()):
+    urls: list[str] = []
+
+    def connect(url):
+        urls.append(url)
+        return client
+
+    rc = cli.main(
+        ["--pod", "--prompt", "p", "--out", str(tmp_path), *argv],
+        detector=_ACCEPT,
+        open_session=opener,
+        connect=connect,
+    )
+    return rc, urls
+
+
+@pytest.fixture
+def quick_wait(monkeypatch):
+    monkeypatch.setattr(cli, "WAIT_S", 0.0)
+    monkeypatch.setattr(cli, "POLL_S", 0.0)
+
+
+@pytest.mark.spec("pod.session-closes-on-every-exit")
+def test_a_render_that_raises_still_closes_the_session(tmp_path):
+    opener = _FakeOpener()
+
+    with pytest.raises(ComfyExecutionError):
+        _on_pod(tmp_path, opener, FakeComfyClient(queue_error="boom"))
+
+    assert opener.closed
+
+
+@pytest.mark.spec("pod.session-closes-on-every-exit")
+def test_a_server_that_never_answers_refuses_and_closes_the_session(tmp_path, quick_wait, capsys):
+    opener = _FakeOpener()
+    client = FakeComfyClient(silent_stats=10**6)
+
+    rc, _ = _on_pod(tmp_path, opener, client)
+
+    assert rc == 1
+    assert opener.closed
+    assert client.queued_workflows == []
+    assert "refused: the render server did not answer within 0s" in capsys.readouterr().err
+
+
+@pytest.mark.spec("pod.session-closes-on-every-exit")
+def test_a_signal_inside_the_session_closes_it_and_exits_128_plus_the_signal(tmp_path):
+    opener = _FakeOpener()
+
+    rc, _ = _on_pod(tmp_path, opener, _Interrupting())
+
+    assert rc == 128 + signal.SIGTERM
+    assert opener.closed
+
+
+@pytest.mark.spec("pod.session-closes-on-every-exit")
+def test_a_lost_create_exits_3_naming_the_teardown_that_reads_the_key(tmp_path, capsys):
+    rc, _ = _on_pod(tmp_path, _FakeOpener(on_open=gpunit.Lost()), FakeComfyClient())
+
+    assert rc == 3
+    assert "uv run --env-file .env gpunit down" in capsys.readouterr().err
+
+
+@pytest.mark.spec("pod.session-closes-on-every-exit")
+def test_a_failed_teardown_exits_1_naming_the_teardown_that_reads_the_key(tmp_path, capsys):
+    opener = _FakeOpener(on_close=gpunit.TeardownFailed("the teardown failed"))
+
+    rc, _ = _on_pod(tmp_path, opener, FakeComfyClient())
+
+    assert rc == 1
+    assert "uv run --env-file .env gpunit down" in capsys.readouterr().err
+
+
+@pytest.mark.spec("pod.session-closes-on-every-exit")
+def test_a_refused_session_exits_1_and_renders_nothing(tmp_path):
+    client = FakeComfyClient()
+
+    rc, _ = _on_pod(tmp_path, _FakeOpener(on_open=gpunit.Refused("no card")), client)
+
+    assert rc == 1
+    assert client.queued_workflows == []
+
+
+@pytest.mark.spec("pod.session-awaits-the-server")
+def test_the_server_is_asked_through_the_forwarded_port_before_any_render(tmp_path, monkeypatch):
+    monkeypatch.setattr(cli, "POLL_S", 0.0)
+    opener = _FakeOpener()
+    client = _Ordered(silent_stats=2)
+
+    rc, urls = _on_pod(tmp_path, opener, client)
+
+    assert rc == 0
+    assert opener.session.ports == [8188]
+    assert urls == [f"http://127.0.0.1:{_LOCAL_PORT}"]
+    assert client.calls == ["stats", "stats", "stats", "queue"]
+
+
+class _Clock:
+    """A clock that moves only when slept on, so a 900 s wait costs no wall time."""
+
+    def __init__(self):
+        self.now = 0.0
+        self.asked_at: list[float] = []
+
+    def sleep(self, seconds: float) -> None:
+        self.now += seconds
+
+    def silent(self) -> None:
+        self.asked_at.append(self.now)
+        raise ComfyError("cannot reach ComfyUI: connection refused")
+
+
+@pytest.mark.spec("pod.session-awaits-the-server")
+def test_the_wait_gives_up_after_900_seconds_with_no_answer():
+    clock = _Clock()
+
+    assert not cli.await_server(clock.silent, sleep=clock.sleep, clock=lambda: clock.now)
+
+    assert clock.asked_at[-1] == 900.0
+    assert clock.asked_at[:3] == [0.0, 5.0, 10.0]
+
+
+@pytest.mark.spec("pod.session-awaits-the-server")
+@pytest.mark.parametrize(
+    "silence",
+    [ComfyError("refused"), ConnectionResetError(), http.client.RemoteDisconnected("cut")],
+    ids=["unreachable", "reset", "cut-by-the-tunnel"],
+)
+def test_the_wait_asks_again_while_the_tunnel_has_no_server_behind_it(silence):
+    answers = iter([silence])
+
+    def ask():
+        fault = next(answers, None)
+        if fault is not None:
+            raise fault
+
+    assert cli.await_server(ask, sleep=lambda _: None)
+
+
+@pytest.mark.spec("pod.session-names-its-image")
+def test_the_session_prints_the_image_it_booted(tmp_path, capsys):
+    _on_pod(tmp_path, _FakeOpener(), FakeComfyClient())
+
+    assert f"session image: {_IMAGE}" in capsys.readouterr().err.splitlines()
+
+
+@pytest.mark.spec("pod.session-reads-env-whole")
+def test_the_key_in_dot_env_reaches_the_session_over_the_process_environment(tmp_path, monkeypatch):
+    (tmp_path / ".env").write_text('# the key\nRUNPOD_API_KEY="from-dot-env"\n')
+    monkeypatch.delenv("RUNPOD_API_KEY", raising=False)
+    monkeypatch.setenv("SP_TEST_PROCESS_ONLY", "kept")
+    monkeypatch.setattr(cli, "REPOSITORY", tmp_path)
+    opener = _FakeOpener()
+
+    _on_pod(tmp_path / "out", opener, FakeComfyClient())
+
+    [(root, environ)] = opener.opened
+    assert root == tmp_path
+    assert environ["RUNPOD_API_KEY"] == "from-dot-env"
+    assert environ["SP_TEST_PROCESS_ONLY"] == "kept"
+
+
+def _provider_names(root: Path) -> list[str]:
+    """Return each Python file under `root` that names a provider variable."""
+    return sorted(
+        path.relative_to(root).as_posix()
+        for path in root.rglob("*.py")
+        if "RUNPOD_" in path.read_text()
+    )
+
+
+@pytest.mark.spec("pod.session-reads-env-whole")
+def test_the_runtime_code_names_no_provider_variable():
+    assert _provider_names(REPO_ROOT / "synthetic_portraits") == []
+    assert "RUNPOD_" not in (REPO_ROOT / "generate.py").read_text()
+
+
+@pytest.mark.spec_exempt("structural: twin of test_the_runtime_code_names_no_provider_variable")
+def test_the_provider_check_catches_a_module_naming_the_key(tmp_path):
+    (tmp_path / "ok.py").write_text("import os\n")
+    (tmp_path / "leak.py").write_text('KEY = os.environ["RUNPOD_API_KEY"]\n')
+
+    assert _provider_names(tmp_path) == ["leak.py"]
+
+
+@pytest.mark.spec("faces.cli-missing-dep-early")
+def test_a_missing_faces_group_opens_no_session(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "missing_face_dependencies", lambda: ["cv2"])
+    opener = _FakeOpener()
+
+    with pytest.raises(SystemExit):
+        cli.main(["--pod", "--prompt", "p", "--out", str(tmp_path)], open_session=opener)
+
+    assert opener.opened == []
+
+
+@pytest.mark.spec_exempt("structural: --pod and --server name one render server (0006 D1)")
+def test_pod_and_server_together_is_an_error(tmp_path):
+    with pytest.raises(SystemExit) as exc:
+        cli.main(
+            ["--pod", "--server", "http://x:8188", "--prompt", "p", "--out", str(tmp_path)],
+            detector=_ACCEPT,
+            open_session=_FakeOpener(),
+        )
+    assert exc.value.code != 0
+
+
+@pytest.mark.spec_exempt("structural: one port, declared in gpunit.toml and here")
+def test_the_port_the_cli_reads_is_the_one_gpunit_toml_forwards():
+    spec = tomllib.loads((REPO_ROOT / "gpunit.toml").read_text())
+    assert spec["ports"] == [cli.POD_PORT]
+
+
+def _gpunit_importers(package: Path) -> list[str]:
+    """Return each module under `package` but `gpu.py` that imports gpunit."""
+    return sorted(
+        path.name
+        for path in package.glob("*.py")
+        if path.name != "gpu.py"
+        and re.search(r"^\s*(import gpunit|from gpunit\b)", path.read_text(), re.M)
+    )
+
+
+@pytest.mark.spec_exempt("structural: gpunit is reached only through gpu.py (0006 D2)")
+def test_only_gpu_py_imports_gpunit():
+    assert _gpunit_importers(REPO_ROOT / "synthetic_portraits") == []
+    code = "import sys, synthetic_portraits.cli; print('gpunit' in sys.modules)"
+    proc = subprocess.run(
+        [sys.executable, "-c", code], cwd=REPO_ROOT, capture_output=True, text=True, check=True
+    )
+    assert proc.stdout.strip() == "False"
+
+
+@pytest.mark.spec_exempt("structural: twin of test_only_gpu_py_imports_gpunit")
+def test_the_import_check_catches_a_second_module_importing_gpunit(tmp_path):
+    (tmp_path / "gpu.py").write_text("def f():\n    import gpunit\n")
+    (tmp_path / "cli.py").write_text("from gpunit import Lost\n")
+
+    assert _gpunit_importers(tmp_path) == ["cli.py"]

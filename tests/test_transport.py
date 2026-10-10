@@ -20,6 +20,7 @@ from synthetic_portraits.transport import (
     ComfyTimeoutError,
     ComfyTransport,
     FakeComfyClient,
+    ReportingTransport,
     await_outputs,
 )
 
@@ -34,6 +35,8 @@ NO_SLEEP = lambda _seconds: None  # noqa: E731
 def test_fake_and_real_clients_satisfy_the_transport_protocol():
     assert isinstance(FakeComfyClient(), ComfyTransport)
     assert isinstance(ComfyClient("http://localhost:8188"), ComfyTransport)
+    assert isinstance(FakeComfyClient(), ReportingTransport)
+    assert isinstance(ComfyClient("http://localhost:8188"), ReportingTransport)
 
 
 # --- FakeComfyClient records the full call sequence -------------------------
@@ -187,6 +190,22 @@ def test_comfy_client_get_image_returns_raw_bytes(monkeypatch):
     assert "type=output" in captured["url"]
 
 
+@pytest.mark.spec("pod.session-awaits-the-server")
+def test_comfy_client_system_stats_asks_the_server_for_its_report(monkeypatch):
+    captured = {}
+
+    def handler(req):
+        captured["url"], captured["method"] = req.full_url, req.get_method()
+        return json.dumps({"system": {"comfyui_version": "0.3"}}).encode()
+
+    _stub_urlopen(monkeypatch, handler)
+
+    report = ComfyClient("http://127.0.0.1:18188").system_stats()
+
+    assert report == {"system": {"comfyui_version": "0.3"}}
+    assert (captured["url"], captured["method"]) == ("http://127.0.0.1:18188/system_stats", "GET")
+
+
 @pytest.mark.spec("comfy.upload-multipart")
 def test_comfy_client_upload_image_sends_multipart(monkeypatch):
     captured = {}
@@ -230,6 +249,7 @@ CALLS = {
     "get_history": lambda c: c.get_history("abc"),
     "get_image": lambda c: c.get_image("out.png", "", "output"),
     "upload_image": lambda c: c.upload_image("pose.png", b"IMG"),
+    "system_stats": lambda c: c.system_stats(),
 }
 
 
@@ -238,7 +258,7 @@ CALLS = {
 def test_every_request_carries_an_explicit_user_agent(monkeypatch, call_name):
     # Cloudflare answers `Python-urllib/3.x` with error 1010 — a user-agent block — so a
     # request left on the stdlib default is refused before it reaches ComfyUI. Every call
-    # path must set one, which is why this is parametrized across all four rather than
+    # path must set one, which is why this is parametrized across every call rather than
     # asserted on whichever one happens to be convenient.
     req = _capture_request(monkeypatch, CALLS[call_name])
 

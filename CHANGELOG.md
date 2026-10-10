@@ -16,6 +16,8 @@ files and the annotated tag are one line — they agree, or the release halts.
 - **`gpunit.toml` declares the render session's GPU**: the pin, the cards, the floors, the 45-minute ceiling
   and the volume. `config/image.json` carries a placeholder digest no pod can pull until the image is rebuilt.
 - **`gpunit` is a runtime dependency, pinned at `v0.2.0`**, the exception `CLAUDE.md` names beside `faces`.
+- **`generate.py --pod` renders a batch through one gpunit session**: the image it booted printed, a 900 s wait
+  for ComfyUI through the tunnel, the session closed on every exit. `synthetic_portraits/gpu.py` is gpunit's one seam.
 
 ## [0.5.0] - 2026-10-05
 

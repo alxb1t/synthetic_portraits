@@ -7,7 +7,7 @@ task names.
 ## Progress
 
 - [x] 1 — The configuration
-- [ ] 2 — --pod
+- [x] 2 — --pod
 - [ ] 3 — The pod in Python
 - [ ] 4 — The scripts retired
 - [ ] 5 — The image pinned and recorded
@@ -25,9 +25,9 @@ task names.
 
 ## 2 — --pod
 
-- [ ] 2.1 Write `synthetic_portraits/gpu.py` per [D2](design.md#d2), and add `ComfyClient.system_stats()` to `synthetic_portraits/transport.py` per [D3](design.md#d3).
+- [x] 2.1 Write `synthetic_portraits/gpu.py` per [D2](design.md#d2), and add `ComfyClient.system_stats()` to `synthetic_portraits/transport.py` per [D3](design.md#d3).
   Verify: `grep -c '^import gpunit\|^from gpunit' synthetic_portraits/gpu.py` prints `0`, and `grep -c 'def system_stats' synthetic_portraits/transport.py` prints `1`.
-- [ ] 2.2 Add `--pod` to `synthetic_portraits/cli.py` per [D1](design.md#d1) and [D3](design.md#d3), with `open_session` injectable; in `tests/test_cli.py` bind `pod.session-closes-on-every-exit`, `pod.session-awaits-the-server`, `pod.session-names-its-image` and `pod.session-reads-env-whole` on a fake session.
+- [x] 2.2 Add `--pod` to `synthetic_portraits/cli.py` per [D1](design.md#d1) and [D3](design.md#d3), with `open_session` injectable; in `tests/test_cli.py` bind `pod.session-closes-on-every-exit`, `pod.session-awaits-the-server`, `pod.session-names-its-image` and `pod.session-reads-env-whole` on a fake session.
   Verify: `grep -o -E 'pod\.session-[a-z-]+' tests/test_cli.py | sort -u | wc -l | tr -d ' '` prints `4`, and `uv run python generate.py --help | grep -c -- '--pod'` prints a number of at least `1`.
 
 ## 3 — The pod in Python
