@@ -41,9 +41,13 @@ gate must run on any checkout, offline. `build-image.yml` does a real image buil
 The active change's **`design.md`** is authoritative, with this file behind it — read it. It *is* the
 decision record: the reasoning and the measurement behind each decision live there and nowhere else.
 
-- **Runtime is stdlib-only**, with **one sanctioned exception**: face detection (`insightface` + CPU
-  `onnxruntime` / antelopev2), shipped as the optional `faces` extra and reached **only** through the
-  injected `FaceDetector` facade — real at the CLI, faked in tests. `pytest`/`ruff`/`ty` stay dev-only.
+- **Runtime is stdlib-only**, with **sanctioned exceptions**, each reached through its own seam:
+  - face detection (`insightface` + CPU `onnxruntime` / antelopev2), shipped as the optional `faces`
+    extra and reached **only** through the injected `FaceDetector` facade — real at the CLI, faked in tests;
+  - **`gpunit`**, `--pod`'s GPU session, pinned by its tag in `dependencies`, stdlib-only itself, and
+    imported only inside `synthetic_portraits/gpu.py` — its `open_session` injected, faked in tests.
+
+  `pytest`/`ruff`/`ty` stay dev-only.
 - **Test-first (red → green)** for every unit of logic this project owns. Tests are named as behavioural
   sentences and double as documentation — which is why `tests/**` is exempt from the docstring selectors.
 - **Conventional Commits, one phase = one commit**, staged **by name** — never `git add -A`, because

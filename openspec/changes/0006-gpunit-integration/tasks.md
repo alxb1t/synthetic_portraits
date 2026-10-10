@@ -6,7 +6,7 @@ task names.
 
 ## Progress
 
-- [ ] 1 — The configuration
+- [x] 1 — The configuration
 - [ ] 2 — --pod
 - [ ] 3 — The pod in Python
 - [ ] 4 — The scripts retired
@@ -16,11 +16,11 @@ task names.
 
 ## 1 — The configuration
 
-- [ ] 1.1 **HALT CHECK** — gpunit `v0.2.0` is on its remote, and the repository does not depend on it yet.
+- [x] 1.1 **HALT CHECK** — gpunit `v0.2.0` is on its remote, and the repository does not depend on it yet.
   Verify: `git ls-remote --tags https://github.com/alxb1t/gpunit v0.2.0 | grep -c 'refs/tags/v0.2.0$'` prints `1`, and `grep -c gpunit pyproject.toml` prints `0`.
-- [ ] 1.2 Add `gpunit` to `pyproject.toml`'s `dependencies` with its comment naming the exception, and lock it with `uv lock`; name it in `CLAUDE.md`'s dependency rule; per [D4](design.md#d4).
+- [x] 1.2 Add `gpunit` to `pyproject.toml`'s `dependencies` with its comment naming the exception, and lock it with `uv lock`; name it in `CLAUDE.md`'s dependency rule; per [D4](design.md#d4).
   Verify: `grep -c 'gpunit @ git+https://github.com/alxb1t/gpunit@v0.2.0' pyproject.toml` prints `1`, and `grep -c 'name = "gpunit"' uv.lock` prints `1`.
-- [ ] 1.3 Write `gpunit.toml` and `config/image.json` with the placeholder digest, the volume from `.env`'s `RUNPOD_NETWORK_VOLUME_ID`; add `.gpunit/` to `.gitignore` and drop its volume-id-as-secret wording; per [D4](design.md#d4). In `tests/test_infra.py` bind `pod.session-spec-pins`.
+- [x] 1.3 Write `gpunit.toml` and `config/image.json` with the placeholder digest, the volume from `.env`'s `RUNPOD_NETWORK_VOLUME_ID`; add `.gpunit/` to `.gitignore` and drop its volume-id-as-secret wording; per [D4](design.md#d4). In `tests/test_infra.py` bind `pod.session-spec-pins`.
   Verify: `uv run python -c 'import gpunit; s = gpunit.load_spec(__import__("pathlib").Path("gpunit.toml")); print(s.project, s.ceiling_s, s.vram_gb)'` prints `synthetic-portraits 2700 24`, and `grep -c 'pod.session-spec-pins' tests/test_infra.py` prints `1`.
 
 ## 2 — --pod

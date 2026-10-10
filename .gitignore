@@ -1,5 +1,8 @@
-# Secrets & local config — never commit (the RunPod API key and volume ids).
+# Secrets & local config — never commit (the RunPod API key).
 .env
+
+# gpunit's session record and per-session SSH keys
+.gpunit/
 
 # Rendered scratch output (the curated demo set lives in examples/)
 outputs/

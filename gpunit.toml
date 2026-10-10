@@ -1,0 +1,18 @@
+# The render session's GPU, read by gpunit when `generate.py --pod` opens a session.
+# `image` is `config/image.json`'s reference and digest; a test holds them equal.
+# why each value: 0006-gpunit-integration design D4
+project = "synthetic-portraits"
+image = "ghcr.io/alxb1t/synthetic_portraits@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+gpus = [
+    "NVIDIA RTX PRO 4500 Blackwell",
+    "NVIDIA RTX PRO 4000 Blackwell",
+    "NVIDIA GeForce RTX 4090",
+    "NVIDIA L4",
+]
+vram_gb = 24
+cuda = "12.8"
+disk_gb = 30
+ports = [8188]
+ceiling = "45m"
+timeout = 600
+volume = "3vh5895lws"

@@ -15,12 +15,17 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import tomllib
+from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
+from gpunit.spec import parse_ceiling
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DOCKERFILE = REPO_ROOT / "Dockerfile"
+GPUNIT_SPEC = REPO_ROOT / "gpunit.toml"
+IMAGE_CONFIG = REPO_ROOT / "config" / "image.json"
 CONSTRAINTS = REPO_ROOT / "constraints.txt"
 DOWNLOAD = REPO_ROOT / "download_models.sh"
 START = REPO_ROOT / "infra" / "start.sh"
@@ -164,6 +169,69 @@ def test_constraints_numpy_pin_can_hold_beside_every_other_pin():
             f"{dist}=={pins[dist]} requires numpy>=2, which cannot hold beside "
             f"the pinned numpy=={numpy_pin}"
         )
+
+
+# --- gpunit.toml is the session's spec: the pin, the floors, the ceiling, the volume -------
+
+
+def spec_faults(spec: Mapping[str, object], config: Mapping[str, object]) -> list[str]:
+    """Return each way `gpunit.toml` misses the pin, the floors, the ceiling or the volume.
+
+    e.g. `image = "ghcr.io/a/b:latest"`, no `volume` -> ["not config/image.json's pin", "no volume"]
+    """
+    faults = []
+    digest = str(config.get("digest", ""))
+    pinned = f"{config.get('image')}@{digest}"
+    if not re.fullmatch(r"sha256:[0-9a-f]{64}", digest) or spec.get("image") != pinned:
+        faults.append("not config/image.json's pin")
+    try:
+        ceiling_s = parse_ceiling(str(spec.get("ceiling", "")))
+    except ValueError:
+        ceiling_s = None
+    if ceiling_s is None or ceiling_s > 45 * 60:
+        faults.append("no ceiling within 45 minutes")
+    if not spec.get("volume"):
+        faults.append("no volume")
+    vram = spec.get("vram_gb")
+    if not (isinstance(vram, int) and vram >= 24):
+        faults.append("under 24 GB of card memory")
+    # torch's cu128 build, which the Blackwell cards need
+    if spec.get("cuda") != "12.8":
+        faults.append("not CUDA 12.8")
+    return faults
+
+
+@pytest.mark.spec("pod.session-spec-pins")
+def test_the_session_spec_pins_the_recorded_image_and_bounds_the_spend():
+    spec = tomllib.loads(GPUNIT_SPEC.read_text())
+    assert spec_faults(spec, json.loads(IMAGE_CONFIG.read_text())) == []
+
+
+@pytest.mark.spec_exempt("structural: twin of the session spec's pin check")
+def test_the_spec_check_catches_a_tag_a_long_ceiling_and_a_missing_floor():
+    config = {"image": "ghcr.io/a/b", "digest": "sha256:" + "0" * 64}
+    good = {
+        "image": "ghcr.io/a/b@sha256:" + "0" * 64,
+        "ceiling": "45m",
+        "volume": "v",
+        "vram_gb": 24,
+        "cuda": "12.8",
+    }
+    assert spec_faults(good, config) == []
+    assert spec_faults({**good, "image": "ghcr.io/a/b:latest"}, config) == [
+        "not config/image.json's pin"
+    ]
+    assert spec_faults(good, {"image": "ghcr.io/a/b", "digest": "latest"}) == [
+        "not config/image.json's pin"
+    ]
+    assert spec_faults({**good, "ceiling": "1h"}, config) == ["no ceiling within 45 minutes"]
+    assert spec_faults({**good, "ceiling": "45"}, config) == ["no ceiling within 45 minutes"]
+    bare = {"image": good["image"], "ceiling": "45m", "vram_gb": 16}
+    assert spec_faults(bare, config) == [
+        "no volume",
+        "under 24 GB of card memory",
+        "not CUDA 12.8",
+    ]
 
 
 @pytest.mark.spec("pod.pins-face-deps")

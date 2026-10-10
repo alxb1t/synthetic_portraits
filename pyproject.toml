@@ -4,8 +4,12 @@ version = "0.5.0"
 description = "Text prompt -> photoreal upper-body image of a person who does not exist (SDXL via ComfyUI on RunPod)."
 readme = "README.md"
 requires-python = ">=3.11"
-# Runtime is zero third-party dependency (stdlib only). Do not add runtime deps.
-dependencies = []
+# Runtime is stdlib only, with one exception: gpunit, `--pod`'s GPU session, pinned by its
+# tag, stdlib only itself, and imported only inside `synthetic_portraits/gpu.py`.
+# Do not add another runtime dep.
+dependencies = [
+    "gpunit @ git+https://github.com/alxb1t/gpunit@v0.2.0",
+]
 
 [dependency-groups]
 # Dev-only: the quality gate. Never imported by runtime code.

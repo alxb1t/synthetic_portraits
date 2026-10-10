@@ -108,6 +108,11 @@ wheels = [
 ]
 
 [[package]]
+name = "gpunit"
+version = "0.2.0"
+source = { git = "https://github.com/alxb1t/gpunit?rev=v0.2.0#977839a1c1fb739afe0c31ab40a3421590616b15" }
+
+[[package]]
 name = "idna"
 version = "3.18"
 source = { registry = "https://pypi.org/simple" }
@@ -856,6 +861,9 @@ wheels = [
 name = "synthetic-portraits"
 version = "0.5.0"
 source = { virtual = "." }
+dependencies = [
+    { name = "gpunit" },
+]
 
 [package.dev-dependencies]
 dev = [
@@ -870,6 +878,7 @@ faces = [
 ]
 
 [package.metadata]
+requires-dist = [{ name = "gpunit", git = "https://github.com/alxb1t/gpunit?rev=v0.2.0" }]
 
 [package.metadata.requires-dev]
 dev = [
