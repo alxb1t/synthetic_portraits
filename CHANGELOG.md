@@ -18,6 +18,12 @@ files and the annotated tag are one line — they agree, or the release halts.
 - **`gpunit` is a runtime dependency, pinned at `v0.2.0`**, the exception `CLAUDE.md` names beside `faces`.
 - **`generate.py --pod` renders a batch through one gpunit session**: the image it booted printed, a 900 s wait
   for ComfyUI through the tunnel, the session closed on every exit. `synthetic_portraits/gpu.py` is gpunit's one seam.
+- **The pod boots in Python under gpunit's `boot.sh`**: `pod_start.py` maps the models onto the volume and runs
+  `provision.py fetch` over `config/models.json`, each file SHA-256 verified, then execs ComfyUI.
+
+### Removed
+
+- **`infra/start.sh` and `download_models.sh`**: the start module and the provisioner replace them, under the gate.
 
 ## [0.5.0] - 2026-10-05
 

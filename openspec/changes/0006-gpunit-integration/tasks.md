@@ -8,7 +8,7 @@ task names.
 
 - [x] 1 — The configuration
 - [x] 2 — --pod
-- [ ] 3 — The pod in Python
+- [x] 3 — The pod in Python
 - [ ] 4 — The scripts retired
 - [ ] 5 — The image pinned and recorded
 - [ ] 6 — The documents
@@ -32,11 +32,11 @@ task names.
 
 ## 3 — The pod in Python
 
-- [ ] 3.1 Write `config/models.json` from `download_models.sh`'s entries and `synthetic_portraits/provision.py` per [D6](design.md#d6); in `tests/test_provision.py` bind `pod.download-idempotent`, `pod.download-isolates`, `pod.download-pins-revisions` and `pod.download-verifies-sha256`; point `tests/test_faces.py`'s pins test at the manifest.
+- [x] 3.1 Write `config/models.json` from `download_models.sh`'s entries and `synthetic_portraits/provision.py` per [D6](design.md#d6); in `tests/test_provision.py` bind `pod.download-idempotent`, `pod.download-isolates`, `pod.download-pins-revisions` and `pod.download-verifies-sha256`; point `tests/test_faces.py`'s pins test at the manifest.
   Verify: `grep -o -E 'pod\.download-[a-z0-9-]+' tests/test_provision.py | sort -u | wc -l | tr -d ' '` prints `4`, and `grep -c 'download_models' tests/test_faces.py` prints `0`.
-- [ ] 3.2 Write `synthetic_portraits/pod_start.py` per [D5](design.md#d5), and set ruff's `per-file-target-version` to `py310` for it and `provision.py` in `pyproject.toml`; in `tests/test_pod_start.py` bind `pod.start-maps-model-dirs` and `pod.start-stops-on-a-failed-provision`.
+- [x] 3.2 Write `synthetic_portraits/pod_start.py` per [D5](design.md#d5), and set ruff's `per-file-target-version` to `py310` for it and `provision.py` in `pyproject.toml`; in `tests/test_pod_start.py` bind `pod.start-maps-model-dirs` and `pod.start-stops-on-a-failed-provision`.
   Verify: `grep -c 'py310' pyproject.toml` prints a number of at least `1`, and `grep -c -E 'pod\.start-(maps-model-dirs|stops-on-a-failed-provision)' tests/test_pod_start.py` prints a number of at least `2`.
-- [ ] 3.3 Rewrite `Dockerfile` per [D7](design.md#d7) but its `FROM` line; delete `infra/start.sh` and `download_models.sh`; in `tests/test_infra.py` drop them from `SHELL_SCRIPTS`, delete their tests, rewrite `test_dockerfile_launches_via_start_script` for the `ENTRYPOINT` and `CMD`, and bind `pod.telemetry-off`.
+- [x] 3.3 Rewrite `Dockerfile` per [D7](design.md#d7) but its `FROM` line; delete `infra/start.sh` and `download_models.sh`; in `tests/test_infra.py` drop them from `SHELL_SCRIPTS`, delete their tests, rewrite `test_dockerfile_launches_via_start_script` for the `ENTRYPOINT` and `CMD`, and bind `pod.telemetry-off`.
   Verify: `grep -c '^ENTRYPOINT \["/opt/gpunit/boot.sh", "--"\]$' Dockerfile` prints `1`, and `ls infra/start.sh download_models.sh 2>&1 | grep -c 'No such file'` prints `2`.
 
 ## 4 — The scripts retired

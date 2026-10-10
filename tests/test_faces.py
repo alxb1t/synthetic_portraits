@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import json
 import re
 from pathlib import Path
 
@@ -27,7 +28,7 @@ from synthetic_portraits.faces import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-DOWNLOAD_SH = REPO_ROOT / "download_models.sh"
+MODELS_MANIFEST = REPO_ROOT / "config" / "models.json"
 
 
 @pytest.mark.spec("faces.substitutable-detector")
@@ -65,8 +66,8 @@ def test_importing_faces_does_not_import_insightface():
 #
 # The offline face gate builds FaceAnalysis(name="antelopev2") with the models missing, so
 # insightface auto-downloads the pack to ~/.insightface — unpinned, unverified. ensure_antelopev2
-# stages the SAME pinned + SHA-256-verified files download_models.sh uses (single set of pins,
-# asserted in sync below) so insightface finds them and never auto-fetches.
+# stages the SAME pinned + SHA-256-verified files the pod's `config/models.json` records (one set of
+# pins, asserted in sync below) so insightface finds them and never auto-fetches.
 
 EXPECTED_ANTELOPEV2_FILES = {
     "1k3d68.onnx",
@@ -87,19 +88,19 @@ def test_antelopev2_pins_are_wellformed():
 
 
 @pytest.mark.spec("faces.pins-agree-with-pod")
-def test_antelopev2_pins_match_download_models_sh():
-    # Single source of truth: the host stager must use the exact rev + digests the pod
-    # download script already pins (S1), so the two can never drift to different bytes.
-    text = DOWNLOAD_SH.read_text()
-    (rev,) = re.findall(r'^ANTELOPE_REV="?([0-9a-f]{40})"?', text, re.MULTILINE)
-    assert rev == _ANTELOPEV2_REV
-    files_match = re.search(r"ANTELOPE_FILES=\(([^)]*)\)", text)
-    assert files_match
-    files = files_match.group(1).split()
-    shas = re.findall(r"^\s*([0-9a-f]{64})\s+#\s*(\S+)", text, re.MULTILINE)
-    sh_map = {name: sha for sha, name in shas}
-    assert set(files) == EXPECTED_ANTELOPEV2_FILES
-    assert sh_map == _ANTELOPEV2_SHA256
+def test_antelopev2_pins_match_the_pods_model_manifest():
+    # One set of pins: the host stager must use the exact rev + digests the pod's manifest
+    # records (S1), so the two can never drift to different bytes.
+    prefix = "insightface/models/antelopev2/"
+    pod = {
+        entry["dest"].removeprefix(prefix): entry
+        for entry in json.loads(MODELS_MANIFEST.read_text())["entries"]
+        if entry["dest"].startswith(prefix)
+    }
+    assert set(pod) == EXPECTED_ANTELOPEV2_FILES
+    assert {name: entry["sha256"] for name, entry in pod.items()} == _ANTELOPEV2_SHA256
+    for name, entry in pod.items():
+        assert entry["source"] == f"{_ANTELOPEV2_BASE}/{name}"
 
 
 class _FakeFetch:

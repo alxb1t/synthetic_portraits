@@ -47,6 +47,8 @@ markers = [
 [tool.ruff]
 target-version = "py311"
 line-length = 100
+# The pod runs `pod_start.py` and `provision.py` as files on the image's Python 3.10 (0006 D5).
+per-file-target-version = { "synthetic_portraits/pod_start.py" = "py310", "synthetic_portraits/provision.py" = "py310" }
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "D", "ANN"]

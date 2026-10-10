@@ -2,8 +2,10 @@
 
 # ComfyUI GPU image: RealVisXL V5.0 txt2img (prompt-only; pose is prompt-driven).
 # cu128 PyTorch wheels — the Blackwell/sm_120 requirement; cu124 fails at runtime with
-# "no kernel image is available". Models are NOT baked in; they are fetched onto a
-# RunPod network volume at boot by download_models.sh (see start.sh).
+# "no kernel image is available". Models are NOT baked in; `pod_start.py` fetches them onto
+# the session's network volume at boot, through `provision.py` and `config/models.json`.
+# gpunit's `boot.sh` is the entry point: it installs the session's key, starts sshd, and
+# stops the pod when the start module ends (0006 design D7).
 #
 # The exact ComfyUI ref is confirmed and relocked against the live pod in Phase 5 — the
 # image mirrors the placeholder-then-relock rule.
@@ -14,11 +16,16 @@ FROM ${CUDA_IMAGE} AS base
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 ENV PIP_NO_CACHE_DIR=1
+# The pod's libraries are told to report nothing and to check for no update.
+ENV ORT_DISABLE_TELEMETRY=1 HF_HUB_DISABLE_TELEMETRY=1 NO_ALBUMENTATIONS_UPDATE=1 DO_NOT_TRACK=1
 
-# System deps: python, git, ssh (for the tunnel to 8188), libs a few wheels need.
+# System deps: python, git, sshd and curl (gpunit's boot script needs both), libs a few
+# wheels need. The host keys `openssh-server` makes are deleted in this layer — a later one
+# would only hide them; `boot.sh` makes each pod its own.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        python3 python3-pip python3-venv git wget ca-certificates \
+        python3 python3-pip python3-venv git curl ca-certificates \
         openssh-server libgl1 libglib2.0-0 \
+    && rm -f /etc/ssh/ssh_host_* \
     && rm -rf /var/lib/apt/lists/*
 
 # --- Reproducible-build lock (security S2) ---
@@ -75,19 +82,17 @@ RUN pip3 install --no-cache-dir -c /opt/constraints.txt -r ComfyUI_InstantID/req
     && pip3 install --no-cache-dir -c /opt/constraints.txt \
         insightface==1.0.1 onnxruntime==1.23.2 ultralytics==8.4.116 numpy==1.26.4
 
-# --- sshd (for the SSH tunnel to ComfyUI's 8188) ---
-RUN mkdir -p /var/run/sshd \
-    && sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config
+# --- The pod's start: the start module, the provisioner and its manifest ---
+COPY synthetic_portraits/pod_start.py /opt/sp/pod_start.py
+COPY synthetic_portraits/provision.py /opt/sp/provision.py
+COPY config/models.json /opt/sp/models.json
 
-# Provisioning scripts (model fetch + boot).
-COPY download_models.sh /opt/download_models.sh
-COPY infra/start.sh /opt/start.sh
-RUN chmod +x /opt/download_models.sh /opt/start.sh
-
-# ComfyUI code lives in the image; models live on the mounted network volume.
-ENV COMFYUI_HOME=/opt/ComfyUI
-ENV MODELS_DIR=/runpod-volume/models
+# gpunit's boot script, at the tag pyproject.toml pins gpunit at.
+ADD --checksum=sha256:18742fd46a9889af6212aa76667a43a653767d53f770e0739881869a1f3b03ad \
+    https://raw.githubusercontent.com/alxb1t/gpunit/v0.2.0/boot/boot.sh /opt/gpunit/boot.sh
+RUN chmod +x /opt/gpunit/boot.sh
 
 EXPOSE 8188 22
 
-CMD ["/opt/start.sh"]
+ENTRYPOINT ["/opt/gpunit/boot.sh", "--"]
+CMD ["python3", "/opt/sp/pod_start.py"]

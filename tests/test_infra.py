@@ -27,19 +27,17 @@ DOCKERFILE = REPO_ROOT / "Dockerfile"
 GPUNIT_SPEC = REPO_ROOT / "gpunit.toml"
 IMAGE_CONFIG = REPO_ROOT / "config" / "image.json"
 CONSTRAINTS = REPO_ROOT / "constraints.txt"
-DOWNLOAD = REPO_ROOT / "download_models.sh"
-START = REPO_ROOT / "infra" / "start.sh"
 UP = REPO_ROOT / "infra" / "up.sh"
 DOWN = REPO_ROOT / "infra" / "down.sh"
 BUILD_IMAGE = REPO_ROOT / ".github" / "workflows" / "build-image.yml"
 CHECK_FACE = REPO_ROOT / "scripts" / "check_face.py"
 
-SHELL_SCRIPTS = [DOWNLOAD, START, UP, DOWN]
+SHELL_SCRIPTS = [UP, DOWN]
 
 
 @pytest.mark.spec("pod.infra-files-present")
 def test_infra_files_exist():
-    for path in [DOCKERFILE, DOWNLOAD, START, UP, DOWN]:
+    for path in [DOCKERFILE, UP, DOWN]:
         assert path.exists(), path
 
 
@@ -242,117 +240,82 @@ def test_dockerfile_installs_requests():
     assert "requests" in DOCKERFILE.read_text()
 
 
-@pytest.mark.spec("pod.start-installs-ssh-key")
-def test_start_installs_ssh_public_key():
-    # FROM nvidia/cuda (not a RunPod base image) → start.sh must install RunPod's
-    # injected PUBLIC_KEY into authorized_keys itself, or the SSH tunnel can't auth.
-    text = START.read_text()
-    assert "PUBLIC_KEY" in text
-    assert "authorized_keys" in text
+def launch_faults(dockerfile: str, pyproject: str) -> list[str]:
+    """Return how the image misses starting through gpunit's boot script into the start module.
+
+    e.g. a build file whose only command is `CMD ["/opt/start.sh"]` -> every fault
+    """
+    faults = []
+    tag = re.search(r'gpunit@(v[0-9][^"]*)', pyproject)
+    boot = f"https://raw.githubusercontent.com/alxb1t/gpunit/{tag[1] if tag else '-'}/boot/boot.sh"
+    added = re.compile(
+        rf"^ADD --checksum=sha256:[0-9a-f]{{64}} \\\n\s+{re.escape(boot)} /opt/gpunit/boot.sh$",
+        re.M,
+    )
+    if not added.search(dockerfile):
+        faults.append("boot.sh added at gpunit's pinned tag with a checksum")
+    if not re.search(r'^ENTRYPOINT \["/opt/gpunit/boot.sh", "--"\]$', dockerfile, re.M):
+        faults.append("boot.sh as the entry point")
+    if not re.search(r'^CMD \["python3", "/opt/sp/pod_start.py"\]$', dockerfile, re.M):
+        faults.append("the start module as the command")
+    if "COPY synthetic_portraits/pod_start.py /opt/sp/pod_start.py" not in dockerfile:
+        faults.append("the start module copied in")
+    return faults
 
 
 @pytest.mark.spec("pod.launches-via-start")
-def test_dockerfile_launches_via_start_script():
-    text = DOCKERFILE.read_text()
-    assert "start.sh" in text
-    assert 'CMD ["/opt/start.sh"]' in text
+def test_the_image_starts_through_gpunits_boot_script_into_the_start_module():
+    pyproject = (REPO_ROOT / "pyproject.toml").read_text()
+    assert launch_faults(DOCKERFILE.read_text(), pyproject) == []
 
 
-@pytest.mark.spec("pod.download-idempotent")
-def test_download_is_idempotent_and_fetches_the_v0_2_model_set():
-    text = DOWNLOAD.read_text()
-    # Exact HF filename — the repo ships fp16/fp32 variants; the bare
-    # RealVisXL_V5.0.safetensors does NOT exist (a boot-time 404 crash-loop bug).
-    assert "RealVisXL_V5.0_fp16.safetensors" in text
-    assert "skip" in text.lower()  # skips files already present (idempotent)
-    url_lines = [ln for ln in text.splitlines() if "https://" in ln]
-    # v0.2 adds the InstantID stack + the FaceDetailer bbox model, from the pinned sources.
-    assert any("InstantX/InstantID" in ln and "ip-adapter.bin" in ln for ln in url_lines)
-    assert any("ControlNetModel" in ln for ln in url_lines)  # identity ControlNet
-    assert any("antelopev2" in ln for ln in url_lines)  # the 5-file insightface pack
-    assert any("face_yolov8m.pt" in ln for ln in url_lines)  # FaceDetailer bbox detector
+@pytest.mark.spec_exempt("structural: twin of the image's launch check")
+def test_the_launch_check_catches_a_shell_start_and_a_boot_script_at_another_tag():
+    pyproject = '"gpunit @ git+https://github.com/alxb1t/gpunit@v0.2.0",'
+    assert launch_faults('CMD ["/opt/start.sh"]\n', pyproject) == [
+        "boot.sh added at gpunit's pinned tag with a checksum",
+        "boot.sh as the entry point",
+        "the start module as the command",
+        "the start module copied in",
+    ]
+    moved = DOCKERFILE.read_text().replace("gpunit/v0.2.0/", "gpunit/v0.1.0/")
+    assert launch_faults(moved, pyproject) == [
+        "boot.sh added at gpunit's pinned tag with a checksum"
+    ]
 
 
-@pytest.mark.spec("pod.download-isolates")
-def test_download_isolates_models_into_their_target_dirs():
-    text = DOWNLOAD.read_text()
-    # Subfolder-isolated targets (dodge generic-filename collisions like config.json).
-    assert "instantid" in text  # models/instantid/ip-adapter.bin
-    assert "controlnet" in text  # models/controlnet/...
-    assert "insightface/models/antelopev2" in text  # the antelopev2 pack's ComfyUI path
-    assert "ultralytics/bbox" in text  # face_yolov8m.pt
+# The switches the pod's libraries read, each set to turn its report or check off.
+TELEMETRY_OFF = {
+    "ORT_DISABLE_TELEMETRY": "1",
+    "HF_HUB_DISABLE_TELEMETRY": "1",
+    "NO_ALBUMENTATIONS_UPDATE": "1",
+    "DO_NOT_TRACK": "1",
+}
 
 
-@pytest.mark.spec("pod.download-pins-revisions")
-def test_download_pins_immutable_commit_revisions():
-    # Supply chain (security S1): every HF `resolve/<ref>/` must pin an IMMUTABLE commit SHA,
-    # never the mutable `main` branch — so a moved ref (or a compromised mirror force-moving
-    # `main`) can't silently swap the bytes we fetch. The URLs interpolate a `*_REV` variable;
-    # assert no `main` ref, that each resolve ref is a `_REV` var (or a literal SHA), and that
-    # every `_REV` variable is assigned a real 40-hex commit SHA.
-    text = DOWNLOAD.read_text()
-    assert "resolve/main/" not in text, "model URLs must not use the mutable `main` ref"
-    refs = re.findall(r"/resolve/([^/]+)/", text)
-    assert refs, "expected pinned resolve URLs"
-    for ref in refs:
-        assert re.fullmatch(r"[0-9a-f]{40}", ref) or re.fullmatch(r"\$\{\w*REV\w*\}", ref), (
-            f"resolve ref is neither a 40-hex commit SHA nor a *_REV pin: {ref}"
-        )
-    rev_defs = re.findall(r"^\w*REV\w*=\"?([^\"\n]+)\"?", text, re.MULTILINE)
-    assert rev_defs, "expected *_REV pin definitions"
-    for rev in rev_defs:
-        assert re.fullmatch(r"[0-9a-f]{40}", rev), f"*_REV pin is not a 40-hex commit SHA: {rev}"
+def telemetry_left_on(dockerfile: str) -> list[str]:
+    """Return each telemetry switch the build file's `ENV` lines do not turn off."""
+    set_to: dict[str, str] = {}
+    for line in dockerfile.splitlines():
+        if line.startswith("ENV "):
+            for pair in line[4:].split():
+                name, _, value = pair.partition("=")
+                set_to[name] = value
+    return [name for name, off in TELEMETRY_OFF.items() if set_to.get(name) != off]
 
 
-@pytest.mark.spec("pod.download-verifies-sha256")
-def test_download_verifies_sha256_and_aborts_on_mismatch():
-    # Security S1: two weights are code-executing pickle (.bin/.pt) loaded via torch.load-style
-    # paths, from third-party mirrors. Every download must be SHA-256 verified, and a mismatch
-    # must ABORT (non-zero exit) so a swapped/corrupt file is never moved into place.
-    text = DOWNLOAD.read_text()
-    assert "sha256sum" in text
-    assert "exit 1" in text  # checksum mismatch aborts the script
-    # The pickle weights specifically carry their recorded SHA-256 (the highest-risk files).
-    assert "02b3618e36d803784166660520098089a81388e61a93ef8002aa79a5b1c546e1" in text  # ip-adapter
-    assert "717923c19b3f4bbf5250b728f1fa6b2cb72a33aed1d236ea9caf0e21ad943e5f" in text  # yolov8m
+@pytest.mark.spec("pod.telemetry-off")
+def test_the_image_turns_its_libraries_telemetry_off():
+    assert telemetry_left_on(DOCKERFILE.read_text()) == []
 
 
-@pytest.mark.spec("pod.download-verifies-sha256")
-def test_download_records_a_checksum_for_every_fetched_file():
-    # Every download call passes a SHA-256 argument (a `_SHA` var, a literal, or the antelope
-    # `ANTELOPE_SHAS[i]` array) — no unverified fetch slips through. And every `_SHA` pin is a
-    # real 64-hex digest.
-    text = DOWNLOAD.read_text()
-    download_calls = [ln for ln in text.splitlines() if re.match(r"\s*download ", ln)]
-    assert download_calls, "expected download calls"
-    for ln in download_calls:
-        assert re.search(r"[0-9a-f]{64}", ln) or "_SHA" in ln or "SHAS" in ln, ln
-    sha_defs = re.findall(r"^\w*_SHA=\"?([^\"\n]+)\"?", text, re.MULTILINE)
-    assert sha_defs, "expected *_SHA pin definitions"
-    for sha in sha_defs:
-        assert re.fullmatch(r"[0-9a-f]{64}", sha), f"*_SHA pin is not a 64-hex digest: {sha}"
-
-
-@pytest.mark.spec("pod.start-maps-model-dirs")
-def test_start_maps_the_v0_2_model_dirs_into_comfyui():
-    # ComfyUI code is in the image, weights on the volume — extra_model_paths must expose
-    # the new model folders (controlnet/instantid/ultralytics/insightface), not just checkpoints.
-    text = START.read_text()
-    for folder in ("controlnet", "instantid", "ultralytics", "insightface"):
-        assert folder in text, folder
-
-
-@pytest.mark.spec("pod.start-maps-model-dirs")
-def test_start_symlinks_hardcoded_model_dirs_to_the_volume():
-    # The Impact Subpack (UltralyticsDetectorProvider) and the InstantID node resolve models
-    # from ``folder_paths.models_dir/<x>`` directly and IGNORE extra_model_paths.yaml — so the
-    # yaml mapping alone leaves the bbox list empty and makes InstantID auto-download a broken
-    # (nested) antelopev2. start.sh must symlink those two dirs onto the volume before ComfyUI
-    # launches. (Discovered live in Phase 6.)
-    text = START.read_text()
-    for folder in ("ultralytics", "insightface"):
-        # a symlink of ComfyUI's models/<folder> -> the volume's <folder>
-        assert re.search(rf"ln -s\S*\s+\S*{folder}\S*\s+\S*models/{folder}", text), folder
+@pytest.mark.spec_exempt("structural: twin of the image's telemetry check")
+def test_the_telemetry_check_catches_a_switch_left_out_or_left_on():
+    assert telemetry_left_on("ENV ORT_DISABLE_TELEMETRY=0 HF_HUB_DISABLE_TELEMETRY=1\n") == [
+        "ORT_DISABLE_TELEMETRY",
+        "NO_ALBUMENTATIONS_UPDATE",
+        "DO_NOT_TRACK",
+    ]
 
 
 @pytest.mark.spec("pod.uses-rest-api")

@@ -38,12 +38,12 @@ repo → GHCR Docker image → RunPod pod (RTX-class GPU, cu128) → network vol
      → SSH tunnel → generate.py drives ComfyUI /prompt → /history → /view (headless)
 ```
 
-- **`synthetic_portraits/`** — the runtime package (zero third-party dependency, stdlib
-  only): a `ComfyTransport` seam, trace-based prompt injection, a name→model registry, the
-  render pipeline, and the CLI.
-- **`infra/`** — `up.sh` / `down.sh` provision and tear down the pod (SSH tunnel access);
-  `start.sh` boots it (installs the SSH key, fetches models onto the volume, launches
-  ComfyUI).
+- **`synthetic_portraits/`** — the runtime package (stdlib only, but `gpunit` behind
+  `gpu.py` for `--pod`): a `ComfyTransport` seam, trace-based prompt injection, a name→model registry, the
+  render pipeline, and the CLI. `pod_start.py` boots the pod under gpunit's `boot.sh`
+  (maps the models onto the volume, fetches them through `provision.py` and
+  `config/models.json`, launches ComfyUI).
+- **`infra/`** — `up.sh` / `down.sh` provision and tear down the pod (SSH tunnel access).
 - **`workflows/realvis-txt2img.json`** — the ComfyUI API-format graph.
 - **`scripts/check_face.py`** — offline antelopev2 detectability assertion for the demo set.
 
@@ -115,8 +115,9 @@ exactly one antelopev2-detectable frontal face.
 
 ## Development
 
-Runtime code is **zero third-party dependency** (stdlib only). The dev toolchain is managed
-with uv; the ComfyUI transport and the face detector are both faked in tests, so **no test
+Runtime code is **stdlib only**, but `gpunit` — `--pod`'s GPU session, itself stdlib only and
+imported only inside `synthetic_portraits/gpu.py`. The dev toolchain is managed with uv; the
+ComfyUI transport, the face detector and the GPU session are all faked in tests, so **no test
 touches a GPU or the network**.
 
 ### The quality gate

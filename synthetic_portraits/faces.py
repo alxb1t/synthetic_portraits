@@ -50,10 +50,10 @@ FACES_GROUP_HINT = (
 )
 
 # --- antelopev2 pins (security S1/S3) -------------------------------------------------
-# The pod fetches this pack via download_models.sh (pinned commit SHA + SHA-256 verified).
+# The pod fetches this pack via `config/models.json` (pinned commit SHA + SHA-256 verified).
 # On the dev **host**, insightface's FaceAnalysis(name="antelopev2") would otherwise
 # auto-download the pack to ~/.insightface unpinned + unverified — so ensure_antelopev2()
-# stages the SAME files (identical rev + digests, kept in sync with download_models.sh by
+# stages the SAME files (identical rev + digests, kept in sync with the manifest by
 # tests/test_faces.py) before the detector is built. Third-party mirror → pin + checksum.
 _ANTELOPEV2_REV = "397cafa6d8310e96e302e96528c20a4c92a884f2"
 _ANTELOPEV2_BASE = (
