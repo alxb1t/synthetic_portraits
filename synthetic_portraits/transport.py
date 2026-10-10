@@ -12,6 +12,7 @@ so the state machine and its error paths are unit-testable against the fake.
 
 from __future__ import annotations
 
+import http.client
 import json
 import time
 import uuid
@@ -203,6 +204,9 @@ class ComfyClient:
             raise ComfyExecutionError(_read_http_error(exc)) from exc
         except URLError as exc:
             raise ComfyError(f"cannot reach ComfyUI at {self.base_url}: {exc.reason}") from exc
+        # urllib wraps only a failed connect; a reset or a cut after it comes out raw.
+        except (OSError, http.client.HTTPException) as exc:
+            raise ComfyError(f"lost ComfyUI at {self.base_url}: {exc!r}") from exc
 
     def _json(self, req: Request) -> dict[str, Any]:
         raw = self._bytes(req)

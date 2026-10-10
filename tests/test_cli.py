@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import http.client
 import re
 import signal
 import subprocess
@@ -506,12 +505,6 @@ def _on_pod(tmp_path, opener, client, argv=()):
     return rc, urls
 
 
-@pytest.fixture
-def quick_wait(monkeypatch):
-    monkeypatch.setattr(cli, "WAIT_S", 0.0)
-    monkeypatch.setattr(cli, "POLL_S", 0.0)
-
-
 @pytest.mark.spec("pod.session-closes-on-every-exit")
 def test_a_render_that_raises_still_closes_the_session(tmp_path):
     opener = _FakeOpener()
@@ -523,7 +516,8 @@ def test_a_render_that_raises_still_closes_the_session(tmp_path):
 
 
 @pytest.mark.spec("pod.session-closes-on-every-exit")
-def test_a_server_that_never_answers_refuses_and_closes_the_session(tmp_path, quick_wait, capsys):
+def test_a_server_that_never_answers_refuses_and_closes_the_session(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(cli, "WAIT_S", 0.0)
     opener = _FakeOpener()
     client = FakeComfyClient(silent_stats=10**6)
 
@@ -582,7 +576,7 @@ def test_the_server_is_asked_through_the_forwarded_port_before_any_render(tmp_pa
     rc, urls = _on_pod(tmp_path, opener, client)
 
     assert rc == 0
-    assert opener.session.ports == [8188]
+    assert opener.session.ports == [cli.POD_PORT]
     assert urls == [f"http://127.0.0.1:{_LOCAL_PORT}"]
     assert client.calls == ["stats", "stats", "stats", "queue"]
 
@@ -613,13 +607,8 @@ def test_the_wait_gives_up_after_900_seconds_with_no_answer():
 
 
 @pytest.mark.spec("pod.session-awaits-the-server")
-@pytest.mark.parametrize(
-    "silence",
-    [ComfyError("refused"), ConnectionResetError(), http.client.RemoteDisconnected("cut")],
-    ids=["unreachable", "reset", "cut-by-the-tunnel"],
-)
-def test_the_wait_asks_again_while_the_tunnel_has_no_server_behind_it(silence):
-    answers = iter([silence])
+def test_the_wait_asks_again_while_the_tunnel_has_no_server_behind_it():
+    answers = iter([ComfyError("refused")])
 
     def ask():
         fault = next(answers, None)

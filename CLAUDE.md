@@ -25,7 +25,7 @@ gate must run on any checkout, offline. `build-image.yml` does a real image buil
 tag, which subsumes it; dispatch it for image-as-code work. `bash -n` needs no entry either: no
 shell script is left — the pod boots in Python — and `tests/test_infra.py` holds the tree to that.
 
-**External effects are faked at four seams**, which is what keeps the suite offline:
+**External effects are faked at these seams**, which is what keeps the suite offline:
 
 - **`ComfyTransport`** (`transport.py`) — a Protocol. `ComfyClient` is real (stdlib `urllib`);
   `FakeComfyClient` replays `/prompt` → `/history` → `/view` in memory, including both error paths.
@@ -33,6 +33,8 @@ shell script is left — the pod boots in Python — and `tests/test_infra.py` h
   count, so the regenerate loop is testable.
 - **`workflows/*.json`** — golden fixtures, locked to real node ids exported from a live GPU run.
 - **`await_outputs(..., sleep=)`** — the poll clock is injected, so timeout paths cost no wall time.
+- **`open_session` and `connect`** (`cli.main`) — the gpunit session and the client behind its tunnel.
+  `gpu.open_session` is real; tests pass a fake session and a `FakeComfyClient`, so `--pod` opens no pod.
 
 ---
 

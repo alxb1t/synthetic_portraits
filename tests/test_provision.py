@@ -10,15 +10,17 @@ from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
-from conftest import REPO_ROOT
+from conftest import MODELS_MANIFEST
 
 from synthetic_portraits import provision
 
-MANIFEST = REPO_ROOT / "config" / "models.json"
+
+def _entries() -> list[provision.Entry]:
+    return provision.load(MODELS_MANIFEST)
 
 
-def _entries() -> list[dict[str, str]]:
-    return json.loads(MANIFEST.read_text())["entries"]
+def _source(dest: str) -> str:
+    return f"https://example.org/resolve/{'a' * 40}/{dest}"
 
 
 class _FakeUrlopen:
@@ -39,7 +41,7 @@ def _manifest(tmp_path: Path, files: dict[str, bytes], *, wrong: str | None = No
     entries = [
         {
             "dest": dest,
-            "source": f"https://example.org/resolve/{'a' * 40}/{dest}",
+            "source": _source(dest),
             "sha256": "0" * 64 if dest == wrong else hashlib.sha256(data).hexdigest(),
         }
         for dest, data in files.items()
@@ -50,9 +52,7 @@ def _manifest(tmp_path: Path, files: dict[str, bytes], *, wrong: str | None = No
 
 
 def _served(files: dict[str, bytes]) -> _FakeUrlopen:
-    return _FakeUrlopen(
-        {f"https://example.org/resolve/{'a' * 40}/{dest}": data for dest, data in files.items()}
-    )
+    return _FakeUrlopen({_source(dest): data for dest, data in files.items()})
 
 
 FILES = {
@@ -63,7 +63,8 @@ FILES = {
 
 @pytest.mark.spec("pod.download-idempotent")
 def test_the_manifest_covers_every_model_the_pipeline_needs():
-    dests = {entry["dest"] for entry in _entries()}
+    # The antelopev2 pack is held whole by test_faces' pins test.
+    dests = {entry.dest for entry in _entries()}
 
     assert {
         "checkpoints/RealVisXL_V5.0_fp16.safetensors",
@@ -71,16 +72,6 @@ def test_the_manifest_covers_every_model_the_pipeline_needs():
         "controlnet/diffusion_pytorch_model.safetensors",
         "controlnet/config.json",
         "ultralytics/bbox/face_yolov8m.pt",
-    } <= dests
-    assert {
-        f"insightface/models/antelopev2/{name}"
-        for name in (
-            "1k3d68.onnx",
-            "2d106det.onnx",
-            "genderage.onnx",
-            "glintr100.onnx",
-            "scrfd_10g_bnkps.onnx",
-        )
     } <= dests
 
 
@@ -127,9 +118,9 @@ def test_each_model_lands_under_the_directory_its_consumer_reads(tmp_path):
 def test_every_manifest_entry_names_its_consumers_directory():
     roots = {"checkpoints", "instantid", "controlnet", "insightface", "ultralytics"}
     for entry in _entries():
-        dest = Path(entry["dest"])
-        assert not dest.is_absolute() and ".." not in dest.parts, entry["dest"]
-        assert dest.parts[0] in roots and len(dest.parts) >= 2, entry["dest"]
+        dest = Path(entry.dest)
+        assert not dest.is_absolute() and ".." not in dest.parts, entry.dest
+        assert dest.parts[0] in roots and len(dest.parts) >= 2, entry.dest
 
 
 @pytest.mark.spec("pod.download-isolates")
@@ -147,7 +138,7 @@ def _unpinned(sources: list[str]) -> list[str]:
 
 @pytest.mark.spec("pod.download-pins-revisions")
 def test_every_source_is_pinned_to_an_immutable_commit_revision():
-    assert _unpinned([entry["source"] for entry in _entries()]) == []
+    assert _unpinned([entry.source for entry in _entries()]) == []
 
 
 @pytest.mark.spec_exempt("structural: twin of the manifest's revision check")
@@ -167,7 +158,7 @@ def test_the_revision_check_catches_a_branch_and_a_tag():
 @pytest.mark.spec("pod.download-verifies-sha256")
 def test_every_manifest_entry_records_a_digest():
     for entry in _entries():
-        assert re.fullmatch(r"[0-9a-f]{64}", entry["sha256"]), entry["dest"]
+        assert re.fullmatch(r"[0-9a-f]{64}", entry.sha256), entry.dest
 
 
 @pytest.mark.spec("pod.download-verifies-sha256")

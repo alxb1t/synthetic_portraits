@@ -8,10 +8,8 @@ reference image.
 from __future__ import annotations
 
 import argparse
-import http.client
 import os
 import random
-import signal
 import sys
 import time
 from collections.abc import Callable, Sequence
@@ -49,9 +47,6 @@ POD_PORT = 8188
 # A cold volume downloads its models before ComfyUI starts (0006 design D3).
 WAIT_S = 900.0
 POLL_S = 5.0
-
-# What a tunnel with no server behind it answers: refused, reset, or cut mid-response.
-_SILENT = (ComfyError, OSError, http.client.HTTPException)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -117,7 +112,7 @@ def await_server(
         try:
             ask()
             return True
-        except _SILENT:
+        except ComfyError:
             if clock() >= deadline:
                 return False
             sleep(poll_s)
@@ -139,25 +134,16 @@ def _on_pod(
     environ = {**os.environ, **gpu.read_env(REPOSITORY / ".env")}
     try:
         with open_session(REPOSITORY, environ, say) as session:
-            print(f"session image: {session.image}", file=sys.stderr)
+            say(f"session image: {session.image}")
             client = connect(f"http://127.0.0.1:{session.port(POD_PORT)}")
             if not await_server(client.system_stats, wait_s=WAIT_S, poll_s=POLL_S):
-                print(
-                    f"refused: the render server did not answer within {WAIT_S:g}s",
-                    file=sys.stderr,
-                )
+                say(f"refused: the render server did not answer within {WAIT_S:g}s")
                 return 1
             return render(client)
-    except KeyboardInterrupt as stopped:
-        # gpunit's `Interrupted` carries the signal; a bare Ctrl-C is SIGINT.
-        return 128 + int(getattr(stopped, "signal", signal.SIGINT))
-    except Exception as fault:
-        ended = gpu.fault_exit(fault)
-        if ended is None:
+    except BaseException as fault:
+        code = gpu.fault_exit(fault, say)
+        if code is None:
             raise
-        code, line = ended
-        if line is not None:
-            print(line, file=sys.stderr)
         return code
 
 
@@ -208,10 +194,10 @@ def main(
         model = get_model(args.model)
 
     # The detector is built before anything is queued, so a missing optional dependency is
-    # reported while it is still free to fix — the render server is a metered GPU pod, and
-    # the bare ModuleNotFoundError used to surface only after it was already billing. The
-    # check runs ONLY on the non-injected path, so a caller supplying a stand-in (every
-    # test does) never needs the group at all. See change 0004, design D5.
+    # reported while it is still free to fix — before any pod is opened, since the render
+    # server is a metered GPU pod. The check runs ONLY on the non-injected path, so a caller
+    # supplying a stand-in (every test does) never needs the group at all. See change 0004,
+    # design D5.
     face_detector = detector
     if face_detector is None:
         missing = missing_face_dependencies()

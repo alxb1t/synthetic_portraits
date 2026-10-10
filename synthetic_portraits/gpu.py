@@ -6,6 +6,7 @@ imports no third-party package (0006 design D2).
 
 from __future__ import annotations
 
+import signal
 from collections.abc import Callable, Mapping
 from contextlib import AbstractContextManager
 from pathlib import Path
@@ -53,24 +54,26 @@ def open_session(
     return gpunit.session(root / "gpunit.toml", environ=environ, cwd=root, say=say)
 
 
-def fault_exit(fault: Exception) -> tuple[int, str | None] | None:
-    """Return the exit code and the line to print for one of gpunit's faults; None otherwise.
+def fault_exit(fault: BaseException, say: Callable[[str], None]) -> int | None:
+    """Say why a session ended and return its exit code; None for a fault that is not gpunit's.
 
-    e.g. gpunit.Lost() -> (3, "refused: the provider's answer was lost; ...")
+    e.g. gpunit.Lost() -> says "refused: the provider's answer was lost; ...", returns 3
     """
     import gpunit
 
+    if isinstance(fault, KeyboardInterrupt):
+        # gpunit's `Interrupted` carries the signal; a bare Ctrl-C is SIGINT.
+        return 128 + int(getattr(fault, "signal", signal.SIGINT))
     if isinstance(fault, gpunit.Lost):
-        return LOST_EXIT, (
+        say(
             f"refused: the provider's answer was lost; `{_STATUS}` shows what is left, "
             f"and `{_DOWN}` deletes it"
         )
+        return LOST_EXIT
     if isinstance(fault, gpunit.TeardownFailed):
-        return (
-            1,
-            f"refused: the session's teardown failed, and its pod may still bill; run `{_DOWN}`",
-        )
+        say(f"refused: the session's teardown failed, and its pod may still bill; run `{_DOWN}`")
+        return 1
     if isinstance(fault, gpunit.Refused):
         # gpunit has written its own `refused:` line through `say`.
-        return 1, None
+        return 1
     return None

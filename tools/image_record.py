@@ -34,22 +34,25 @@ TAKES_FILES = re.compile(r"^\s*(COPY|ADD)\s", re.I)
 
 
 def instructions(dockerfile: str) -> list[str]:
-    r"""Return each instruction as written, its continued lines joined by newlines.
+    r"""Return each instruction on one line, its continued lines joined by spaces.
 
     A comment line inside a continuation is dropped, as Docker drops it.
-    e.g. "RUN a \\\n  b\nCOPY c /c\n" -> ["RUN a \\\n  b", "COPY c /c"]
+    e.g. "RUN a \\\n  b\nCOPY c /c\n" -> ["RUN a b", "COPY c /c"]
     """
     found: list[str] = []
     held: list[str] = []
     for line in dockerfile.splitlines():
         if held and line.lstrip().startswith("#"):
             continue
-        held.append(line)
-        if not line.rstrip().endswith("\\"):
-            found.append("\n".join(held))
+        part = line.rstrip()
+        continued = part.endswith("\\")
+        part = part.removesuffix("\\").rstrip()
+        held.append(part.lstrip() if held else part)
+        if not continued:
+            found.append(" ".join(held))
             held = []
     if held:
-        found.append("\n".join(held))
+        found.append(" ".join(held))
     return found
 
 
@@ -63,11 +66,10 @@ def copied(dockerfile: str) -> list[str]:
     for written in instructions(dockerfile):
         if not TAKES_FILES.match(written):
             continue
-        joined = " ".join(part.rstrip().removesuffix("\\") for part in written.split("\n"))
-        if FROM_IMAGE.match(written) or CHECKSUMMED_URL.match(joined):
+        if FROM_IMAGE.match(written) or CHECKSUMMED_URL.match(written):
             continue
         found = COPY.match(written)
-        if found is None or "\n" in written:
+        if found is None:
             raise ValueError(
                 f"cannot read {written!r}: a COPY from the build context takes one source, "
                 "one destination and no flag, and an ADD only a URL with --checksum"

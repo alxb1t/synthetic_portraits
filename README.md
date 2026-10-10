@@ -102,7 +102,7 @@ exactly one antelopev2-detectable frontal face.
 
 ## Development
 
-Runtime code is **stdlib only**, but `gpunit` — `--pod`'s GPU session, itself stdlib only and
+Runtime code is **stdlib only** except `gpunit` (`--pod`'s GPU session, itself stdlib only),
 imported only inside `synthetic_portraits/gpu.py`. The dev toolchain is managed with uv; the
 ComfyUI transport, the face detector and the GPU session are all faked in tests, so **no test
 touches a GPU or the network**.

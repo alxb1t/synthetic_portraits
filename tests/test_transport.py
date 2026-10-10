@@ -7,6 +7,7 @@ real stdlib-``urllib`` implementation, exercised here against a stubbed ``urlope
 
 from __future__ import annotations
 
+import http.client
 import io
 import json
 from email.message import Message
@@ -15,10 +16,11 @@ from urllib.error import HTTPError
 import pytest
 
 from synthetic_portraits.transport import (
+    USER_AGENT,
     ComfyClient,
+    ComfyError,
     ComfyExecutionError,
     ComfyTimeoutError,
-    ComfyTransport,
     FakeComfyClient,
     ReportingTransport,
     await_outputs,
@@ -33,8 +35,7 @@ NO_SLEEP = lambda _seconds: None  # noqa: E731
 
 @pytest.mark.spec("comfy.seam-is-substitutable")
 def test_fake_and_real_clients_satisfy_the_transport_protocol():
-    assert isinstance(FakeComfyClient(), ComfyTransport)
-    assert isinstance(ComfyClient("http://localhost:8188"), ComfyTransport)
+    # A ReportingTransport is a ComfyTransport with the server's report besides.
     assert isinstance(FakeComfyClient(), ReportingTransport)
     assert isinstance(ComfyClient("http://localhost:8188"), ReportingTransport)
 
@@ -206,6 +207,22 @@ def test_comfy_client_system_stats_asks_the_server_for_its_report(monkeypatch):
     assert (captured["url"], captured["method"]) == ("http://127.0.0.1:18188/system_stats", "GET")
 
 
+@pytest.mark.spec("pod.session-awaits-the-server")
+@pytest.mark.parametrize(
+    "cut",
+    [ConnectionResetError(), http.client.RemoteDisconnected("cut")],
+    ids=["reset", "cut-by-the-tunnel"],
+)
+def test_a_tunnel_with_no_server_behind_it_is_a_comfy_error(monkeypatch, cut):
+    def handler(req):
+        raise cut
+
+    _stub_urlopen(monkeypatch, handler)
+
+    with pytest.raises(ComfyError, match="lost ComfyUI"):
+        ComfyClient("http://127.0.0.1:18188").system_stats()
+
+
 @pytest.mark.spec("comfy.upload-multipart")
 def test_comfy_client_upload_image_sends_multipart(monkeypatch):
     captured = {}
@@ -261,11 +278,8 @@ def test_every_request_carries_an_explicit_user_agent(monkeypatch, call_name):
     # every call rather than asserted on whichever one happens to be convenient.
     req = _capture_request(monkeypatch, CALLS[call_name])
 
-    user_agent = req.get_header("User-agent")
-
-    assert user_agent, f"{call_name} left the User-Agent to the standard library's default"
-    assert not user_agent.startswith("Python-urllib"), user_agent
-    assert user_agent.startswith("synthetic-portraits"), "the user agent must name this client"
+    assert req.get_header("User-agent") == USER_AGENT, call_name
+    assert USER_AGENT.startswith("synthetic-portraits"), "the user agent must name this client"
 
 
 @pytest.mark.parametrize("call_name", ["queue_prompt", "upload_image"])

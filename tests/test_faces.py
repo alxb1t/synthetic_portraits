@@ -11,12 +11,13 @@ from __future__ import annotations
 
 import ast
 import hashlib
-import json
 import re
 from pathlib import Path
 
 import pytest
+from conftest import MODELS_MANIFEST, REPO_ROOT
 
+from synthetic_portraits import provision
 from synthetic_portraits.faces import (
     _ANTELOPEV2_BASE,
     _ANTELOPEV2_REV,
@@ -26,9 +27,6 @@ from synthetic_portraits.faces import (
     FakeFaceDetector,
     ensure_antelopev2,
 )
-
-REPO_ROOT = Path(__file__).resolve().parent.parent
-MODELS_MANIFEST = REPO_ROOT / "config" / "models.json"
 
 
 @pytest.mark.spec("faces.substitutable-detector")
@@ -93,14 +91,14 @@ def test_antelopev2_pins_match_the_pods_model_manifest():
     # records (S1), so the two can never drift to different bytes.
     prefix = "insightface/models/antelopev2/"
     pod = {
-        entry["dest"].removeprefix(prefix): entry
-        for entry in json.loads(MODELS_MANIFEST.read_text())["entries"]
-        if entry["dest"].startswith(prefix)
+        entry.dest.removeprefix(prefix): entry
+        for entry in provision.load(MODELS_MANIFEST)
+        if entry.dest.startswith(prefix)
     }
     assert set(pod) == EXPECTED_ANTELOPEV2_FILES
-    assert {name: entry["sha256"] for name, entry in pod.items()} == _ANTELOPEV2_SHA256
+    assert {name: entry.sha256 for name, entry in pod.items()} == _ANTELOPEV2_SHA256
     for name, entry in pod.items():
-        assert entry["source"] == f"{_ANTELOPEV2_BASE}/{name}"
+        assert entry.source == f"{_ANTELOPEV2_BASE}/{name}"
 
 
 class _FakeFetch:

@@ -1,9 +1,8 @@
 name: build-image
 
-# Built on request only: every image that exists was asked for, and its digest and build
-# record are in the run's summary. A pod boots that digest from `gpunit.toml`, never a
-# tag, so `latest` is refused rather than published, and no version is ever pruned.
-# Actions are pinned by commit SHA. Why: 0006-gpunit-integration design D9.
+# Built on request only: every image was asked for, and its digest and build record are in
+# the run's summary. A pod boots that digest from `gpunit.toml`, never a tag, so `latest` is
+# refused and no version is pruned. Why: 0006-gpunit-integration design D9.
 on:
   workflow_dispatch:
     inputs:

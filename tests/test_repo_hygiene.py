@@ -14,10 +14,9 @@ absolute-path rules carry no exemption at all.
 from __future__ import annotations
 
 import functools
-import subprocess
 from pathlib import Path
 
-from conftest import REPO_ROOT, STRUCTURAL_GUARD
+from conftest import REPO_ROOT, STRUCTURAL_GUARD, repo_files
 
 pytestmark = STRUCTURAL_GUARD
 
@@ -30,25 +29,14 @@ _VAULT_WORD = "vault"
 
 @functools.cache
 def _repo_text() -> dict[str, str]:
-    """Every file git would carry, decoded once per session: path -> text.
-
-    ``--others --exclude-standard`` is load-bearing. Listing only tracked files let a newly
-    written file pass this guard until its first commit, so the gate went green on an
-    incomplete set and the violation surfaced a phase later.
+    """Every file git would carry (``repo_files``), decoded once per session: path -> text.
 
     Files holding a NUL byte are skipped as binary. That is not only a speed concern: the
     six PNGs under ``examples/`` are ~97% of the repository's bytes and cannot meaningfully
     contain any needle below, so decoding them would be pure waste on every assertion.
     """
-    out = subprocess.run(
-        ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout
     texts: dict[str, str] = {}
-    for path in sorted({p for p in out.split("\0") if p}):
+    for path in repo_files():
         file = REPO_ROOT / path
         if not file.is_file():
             continue

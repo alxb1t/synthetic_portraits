@@ -18,11 +18,11 @@ from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
+from conftest import REPO_ROOT, repo_files
 from gpunit.spec import parse_ceiling
 
-from tools.image_record import copied, record
+from tools.image_record import copied, instructions, record
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
 DOCKERFILE = REPO_ROOT / "Dockerfile"
 GPUNIT_SPEC = REPO_ROOT / "gpunit.toml"
 IMAGE_CONFIG = REPO_ROOT / "config" / "image.json"
@@ -38,14 +38,7 @@ def shell_scripts(paths: list[str]) -> list[str]:
 
 @pytest.mark.spec_exempt("structural: the pod boots in Python, and no shell script is left")
 def test_no_shell_script_is_left_in_the_repository():
-    tracked = subprocess.run(
-        ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout.splitlines()
-    assert shell_scripts(tracked) == []
+    assert shell_scripts(list(repo_files())) == []
 
 
 @pytest.mark.spec_exempt("structural: twin of test_no_shell_script_is_left_in_the_repository")
@@ -61,9 +54,8 @@ def unpinned_sources(dockerfile: str) -> list[str]:
 
     e.g. "FROM ubuntu:22.04" -> ["FROM ubuntu:22.04"]
     """
-    joined = re.sub(r"\\\n\s*", " ", dockerfile)
     found = []
-    for line in joined.splitlines():
+    for line in instructions(dockerfile):
         if re.match(r"FROM\s", line) and not re.search(r"@sha256:[0-9a-f]{64}\b", line):
             found.append(line)
         if re.match(r"ADD\s", line) and "://" in line and "--checksum=sha256:" not in line:
@@ -328,7 +320,7 @@ TELEMETRY_OFF = {
 def telemetry_left_on(dockerfile: str) -> list[str]:
     """Return each telemetry switch the build file's `ENV` lines do not turn off."""
     set_to: dict[str, str] = {}
-    for line in dockerfile.splitlines():
+    for line in instructions(dockerfile):
         if line.startswith("ENV "):
             for pair in line[4:].split():
                 name, _, value = pair.partition("=")
