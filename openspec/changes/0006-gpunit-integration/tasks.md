@@ -11,7 +11,7 @@ task names.
 - [x] 3 — The pod in Python
 - [x] 4 — The scripts retired
 - [x] 5 — The image pinned and recorded
-- [ ] 6 — The documents
+- [x] 6 — The documents
 - [ ] 7 — ⚠️ **HUMAN · METERED** — build, re-pin, one --pod batch
 
 ## 1 — The configuration
@@ -55,7 +55,7 @@ task names.
 
 ## 6 — The documents
 
-- [ ] 6.1 Rewrite `README.md`'s pod section and `CLAUDE.md`'s spend rule per [D10](design.md#d10).
+- [x] 6.1 Rewrite `README.md`'s pod section and `CLAUDE.md`'s spend rule per [D10](design.md#d10).
   Verify: `grep -c -E 'up\.sh|down\.sh|id_ed25519_runpod' README.md CLAUDE.md | grep -v ':0$' | wc -l | tr -d ' '` prints `0`, and `grep -c '45 minutes' CLAUDE.md` prints a number of at least `1`.
 
 ## 7 — ⚠️ **HUMAN · METERED** — build, re-pin, one --pod batch

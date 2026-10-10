@@ -112,7 +112,9 @@ moving version can never turn CI red. The binding authority for the code is the 
 - **Never weaken the gate to pass.** A deleted or skipped test, a blanket suppression, a loosened config —
   each is a *plan* problem, not a coding shortcut. **Halt and say so.**
 - **State lives on disk.** Reconstruct "where are we" from `tasks.md` + git, never from memory.
-- **Some work spends real money.** Pods bill per second. Announce, wait for an explicit human "go", tear
-  down afterwards, and never bring up a paid pod on your own initiative.
+- **Some work spends real money.** Pods bill per second. A pod is opened only by `generate.py --pod`,
+  through gpunit; its ceiling is **45 minutes**, about **$0.30** a session. Announce, wait for an explicit
+  human "go", never open a paid pod on your own initiative, and afterwards confirm through the RunPod MCP
+  that no `gpunit-synthetic-portraits` pod is left.
 - **Every image is of a person who does not exist**, is disclosed as AI-generated, and the pipeline is
   never pointed at a real individual's likeness.

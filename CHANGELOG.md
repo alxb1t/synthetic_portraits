@@ -24,6 +24,11 @@ files and the annotated tag are one line — they agree, or the release halts.
   refuses `latest`, prunes nothing, pins actions by SHA, and prints the digest and `tools/image_record.py`'s
   record, which `config/image.json` holds and a test re-derives.
 
+### Changed
+
+- **README's usage is one `--pod` command**, with `uv run --env-file .env gpunit down` for a session left behind.
+  `CLAUDE.md`'s spend rule names `--pod`, the 45-minute ceiling (~$0.30 a session) and the post-run MCP check.
+
 ### Removed
 
 - **`infra/start.sh` and `download_models.sh`**: the start module and the provisioner replace them, under the gate.
