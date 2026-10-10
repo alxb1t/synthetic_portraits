@@ -23,6 +23,8 @@ files and the annotated tag are one line — they agree, or the release halts.
 - **The image is pinned and recorded**: `FROM` by digest; `build-image.yml` builds only on a dispatched tag,
   refuses `latest`, prunes nothing, pins actions by SHA, and prints the digest and `tools/image_record.py`'s
   record, which `config/image.json` holds and a test re-derives.
+- **The pod image is pinned at `v0.6-rc1`** (`sha256:eb673946…861c`), proved by one `--pod` render on a
+  fresh volume: provisioned, rendered, one antelopev2 face, pod deleted, in 6.5 minutes.
 
 ### Changed
 

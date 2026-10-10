@@ -1,7 +1,7 @@
 {
   "image": "ghcr.io/alxb1t/synthetic_portraits",
-  "tag": "",
-  "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "tag": "v0.6-rc1",
+  "digest": "sha256:eb673946e0304568442d75d01996662a8a56772fd2e5a2cda040baa285de861c",
   "files": {
     "Dockerfile": "417b613a3b864abf57daf982ae4ecba3aa19236ddbd902da7ee5cc5e561ae3d3",
     "constraints.txt": "91b4cedc383243e965cc1e9e7d8cc749a6a92680a034cd87d8efe0f742fc727d",

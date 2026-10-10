@@ -12,7 +12,7 @@ task names.
 - [x] 4 — The scripts retired
 - [x] 5 — The image pinned and recorded
 - [x] 6 — The documents
-- [ ] 7 — ⚠️ **HUMAN · METERED** — build, re-pin, one --pod batch
+- [x] 7 — ⚠️ **HUMAN · METERED** — build, re-pin, one --pod batch
 
 ## 1 — The configuration
 
@@ -60,5 +60,5 @@ task names.
 
 ## 7 — ⚠️ **HUMAN · METERED** — build, re-pin, one --pod batch
 
-- [ ] 7.1 **HUMAN · METERED** — push `v0.6_gpunit_integration`; dispatch `build-image.yml` on it with tag `v0.6-rc1`; check its printed files equal `config/image.json`'s `files`; write the tag and digest into `config/image.json` and the digest into `gpunit.toml`; run `uv run --group faces python generate.py --pod --prompt …` once; confirm through the RunPod MCP that no pod is left; per [D11](design.md#d11).
+- [x] 7.1 **HUMAN · METERED** — push `v0.6_gpunit_integration`; dispatch `build-image.yml` on it with tag `v0.6-rc1`; check its printed files equal `config/image.json`'s `files`; write the tag and digest into `config/image.json` and the digest into `gpunit.toml`; run `uv run --group faces python generate.py --pod --prompt …` once; confirm through the RunPod MCP that no pod is left; per [D11](design.md#d11).
   Verify: `grep -c '"tag": "v0.6-rc1"' config/image.json` prints `1`, and `uv run gpunit status` prints `no session is recorded`.
