@@ -22,8 +22,8 @@ The `Makefile` declares it and notes each command; CI runs `make gate` too.
 
 **`docker build --check` is deliberately *not* in the gate** — it needs a running Docker daemon, and the
 gate must run on any checkout, offline. `build-image.yml` does a real image build on every push to
-`main`, which subsumes it; run it by hand for image-as-code work. `bash -n` needs no entry either:
-`tests/test_infra.py` already runs it over every shell script, so the suite carries that axis.
+`main`, which subsumes it; run it by hand for image-as-code work. `bash -n` needs no entry either: no
+shell script is left — the pod boots in Python — and `tests/test_infra.py` holds the tree to that.
 
 **External effects are faked at four seams**, which is what keeps the suite offline:
 
@@ -92,8 +92,10 @@ moving version can never turn CI red. The binding authority for the code is the 
 
 - **`synthetic_portraits/`** — the runtime package: `transport` (the ComfyUI seam), `workflow` (trace-based
   prompt injection), `models` (name→model registry), `pipeline` (render + face gate + regenerate loop),
-  `faces`, `batch`, `cli`. **`generate.py`** is the entry point. **`tests/`** — the suite.
-- **`infra/`** — pod up/down/boot scripts. **`workflows/`** — the ComfyUI API-format graphs.
+  `faces`, `batch`, `cli`, `gpu` (the gpunit seam), and the pod's own `pod_start` and `provision`.
+  **`generate.py`** is the entry point. **`tests/`** — the suite.
+- **`gpunit.toml`** — the GPU session's spec. **`config/`** — the pod's model manifest and the image's
+  build record. **`workflows/`** — the ComfyUI API-format graphs.
   **`scripts/`** — `check_face.py`, the offline detectability assertion. **`examples/`** — the demo set.
 - **`openspec/`** — the living specs and the changes. **`.github/`** — CI and the image build.
 - **`.minions/`** — MinionsFactory's run artefacts, gitignored whole.

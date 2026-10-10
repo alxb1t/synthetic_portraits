@@ -24,6 +24,8 @@ files and the annotated tag are one line — they agree, or the release halts.
 ### Removed
 
 - **`infra/start.sh` and `download_models.sh`**: the start module and the provisioner replace them, under the gate.
+- **`infra/up.sh`, `infra/down.sh` and the HTTP proxy route**: gpunit creates, reaches and deletes the pod.
+  `.env.example` holds the key alone; the `User-Agent` now names this client rather than passing a proxy's filter.
 
 ## [0.5.0] - 2026-10-05
 

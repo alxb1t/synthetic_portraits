@@ -116,17 +116,9 @@ def _describe_error(status: dict[str, Any], prompt_id: str) -> str:
 
 # --- Real implementation (stdlib urllib) ------------------------------------
 
-# Cloudflare, which fronts a pod when no tunnelled route exists, answers the stdlib's
-# default `Python-urllib/3.x` with error 1010 — a user-agent block. The request never
-# reaches ComfyUI, so a failure that is purely about client identification surfaces as an
-# unexplained transport error (measured 2026-09-09: `curl` got 200 where this client got
-# 1010). A browser-like value is what gets past that filter; that is the property being
-# relied on, and it is recorded here rather than left as a bare string. Setting it adds no
-# dependency — the runtime stays stdlib-only. See change 0004, design D4.
-USER_AGENT = (
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
-)
+# Names this client, so the render server's log says who asked for each render; the
+# stdlib's default `Python-urllib/3.x` names only the library.
+USER_AGENT = "synthetic-portraits (+https://github.com/alxb1t/synthetic_portraits)"
 
 
 class ComfyClient:
@@ -151,7 +143,7 @@ class ComfyClient:
         """Build a request carrying :data:`USER_AGENT`, merged over any caller headers.
 
         Every call goes through here, so no path can be added later that silently keeps
-        the standard library's default user agent (design D4).
+        the standard library's default user agent.
         """
         return Request(
             url,

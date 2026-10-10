@@ -9,7 +9,7 @@ task names.
 - [x] 1 — The configuration
 - [x] 2 — --pod
 - [x] 3 — The pod in Python
-- [ ] 4 — The scripts retired
+- [x] 4 — The scripts retired
 - [ ] 5 — The image pinned and recorded
 - [ ] 6 — The documents
 - [ ] 7 — ⚠️ **HUMAN · METERED** — build, re-pin, one --pod batch
@@ -41,9 +41,9 @@ task names.
 
 ## 4 — The scripts retired
 
-- [ ] 4.1 Delete `infra/up.sh` and `infra/down.sh`; delete the tests, helpers and `SHELL_SCRIPTS` of `tests/test_infra.py` that read them; drop `infra/.pod_id` from `.gitignore`; per [D8](design.md#d8).
+- [x] 4.1 Delete `infra/up.sh` and `infra/down.sh`; delete the tests, helpers and `SHELL_SCRIPTS` of `tests/test_infra.py` that read them; drop `infra/.pod_id` from `.gitignore`; per [D8](design.md#d8).
   Verify: `ls infra 2>&1 | grep -c 'No such file'` prints `1`, and `find . -name '*.sh' -not -path './.venv/*' -not -path './.git/*' | wc -l | tr -d ' '` prints `0`.
-- [ ] 4.2 Remove the proxy route from `README.md` and `.env.example`, `.env.example` down to `RUNPOD_API_KEY`, and reword the `User-Agent` reason in `synthetic_portraits/transport.py`, per [D8](design.md#d8).
+- [x] 4.2 Remove the proxy route from `README.md` and `.env.example`, `.env.example` down to `RUNPOD_API_KEY`, and reword the `User-Agent` reason in `synthetic_portraits/transport.py`, per [D8](design.md#d8).
   Verify: `grep -c -E 'RUNPOD_EXPOSE_HTTP|proxy\.runpod' README.md .env.example synthetic_portraits/transport.py | grep -v ':0$' | wc -l | tr -d ' '` prints `0`, and `grep -c 'RUNPOD_' .env.example` prints `1`.
 
 ## 5 — The image pinned and recorded

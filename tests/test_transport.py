@@ -256,16 +256,16 @@ CALLS = {
 @pytest.mark.parametrize("call_name", list(CALLS))
 @pytest.mark.spec("comfy.sends-user-agent")
 def test_every_request_carries_an_explicit_user_agent(monkeypatch, call_name):
-    # Cloudflare answers `Python-urllib/3.x` with error 1010 — a user-agent block — so a
-    # request left on the stdlib default is refused before it reaches ComfyUI. Every call
-    # path must set one, which is why this is parametrized across every call rather than
-    # asserted on whichever one happens to be convenient.
+    # The server's log names whoever asked for a render, and the stdlib default names only
+    # the library. Every call path must set one, which is why this is parametrized across
+    # every call rather than asserted on whichever one happens to be convenient.
     req = _capture_request(monkeypatch, CALLS[call_name])
 
     user_agent = req.get_header("User-agent")
 
     assert user_agent, f"{call_name} left the User-Agent to the standard library's default"
     assert not user_agent.startswith("Python-urllib"), user_agent
+    assert user_agent.startswith("synthetic-portraits"), "the user agent must name this client"
 
 
 @pytest.mark.parametrize("call_name", ["queue_prompt", "upload_image"])
