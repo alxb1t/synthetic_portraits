@@ -2,5 +2,11 @@
   "image": "ghcr.io/alxb1t/synthetic_portraits",
   "tag": "",
   "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
-  "files": {}
+  "files": {
+    "Dockerfile": "417b613a3b864abf57daf982ae4ecba3aa19236ddbd902da7ee5cc5e561ae3d3",
+    "constraints.txt": "91b4cedc383243e965cc1e9e7d8cc749a6a92680a034cd87d8efe0f742fc727d",
+    "synthetic_portraits/pod_start.py": "a93ba056639fe0de9d8bf5a1041bd47919d11acf7f0c63d5890170b2c38357fb",
+    "synthetic_portraits/provision.py": "6000ec299387ef839bd14f0656f0c32e3d0321061c7b9a0bf9d8856dc7f12534",
+    "config/models.json": "464eff94451521bc389cef722bd77b05b131eb9e13e978beee8c65431df2d1b3"
+  }
 }

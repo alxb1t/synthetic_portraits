@@ -10,7 +10,7 @@ task names.
 - [x] 2 — --pod
 - [x] 3 — The pod in Python
 - [x] 4 — The scripts retired
-- [ ] 5 — The image pinned and recorded
+- [x] 5 — The image pinned and recorded
 - [ ] 6 — The documents
 - [ ] 7 — ⚠️ **HUMAN · METERED** — build, re-pin, one --pod batch
 
@@ -48,9 +48,9 @@ task names.
 
 ## 5 — The image pinned and recorded
 
-- [ ] 5.1 Pin the `Dockerfile`'s `FROM` by digest, and bind `pod.pins-base-by-digest` in `tests/test_infra.py`, per [D7](design.md#d7).
+- [x] 5.1 Pin the `Dockerfile`'s `FROM` by digest, and bind `pod.pins-base-by-digest` in `tests/test_infra.py`, per [D7](design.md#d7).
   Verify: `grep -c '^FROM nvidia/cuda:12.8.1-cudnn-runtime-ubuntu22.04@sha256:' Dockerfile` prints `1`.
-- [ ] 5.2 Rewrite `.github/workflows/build-image.yml`, write `tools/image_record.py`, and fill `config/image.json`'s `files`, per [D9](design.md#d9); in `tests/test_infra.py` bind `pod.image-built-on-request`, `pod.image-record-matches-the-tree` and `pod.image-workflow-prints-the-record`, replacing the prune and `latest` tests.
+- [x] 5.2 Rewrite `.github/workflows/build-image.yml`, write `tools/image_record.py`, and fill `config/image.json`'s `files`, per [D9](design.md#d9); in `tests/test_infra.py` bind `pod.image-built-on-request`, `pod.image-record-matches-the-tree` and `pod.image-workflow-prints-the-record`, replacing the prune and `latest` tests.
   Verify: `python3 tools/image_record.py | python3 -c 'import json,sys; r=json.load(sys.stdin); print(r == json.load(open("config/image.json"))["files"])'` prints `True`, and `grep -c -E 'delete-package-versions|value=latest|@v[0-9]+$' .github/workflows/build-image.yml` prints `0`.
 
 ## 6 — The documents

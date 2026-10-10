@@ -20,6 +20,8 @@ from pathlib import Path
 import pytest
 from gpunit.spec import parse_ceiling
 
+from tools.image_record import copied, record
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DOCKERFILE = REPO_ROOT / "Dockerfile"
 GPUNIT_SPEC = REPO_ROOT / "gpunit.toml"
@@ -52,6 +54,38 @@ def test_the_shell_script_check_catches_a_script():
         "infra/up.sh",
         "boot.bash",
     ]
+
+
+def unpinned_sources(dockerfile: str) -> list[str]:
+    """Return each `FROM` with no digest and each `ADD` of a URL with no checksum.
+
+    e.g. "FROM ubuntu:22.04" -> ["FROM ubuntu:22.04"]
+    """
+    joined = re.sub(r"\\\n\s*", " ", dockerfile)
+    found = []
+    for line in joined.splitlines():
+        if re.match(r"FROM\s", line) and not re.search(r"@sha256:[0-9a-f]{64}\b", line):
+            found.append(line)
+        if re.match(r"ADD\s", line) and "://" in line and "--checksum=sha256:" not in line:
+            found.append(line)
+    return found
+
+
+@pytest.mark.spec("pod.pins-base-by-digest")
+def test_every_image_built_from_carries_a_digest_and_every_url_a_checksum():
+    text = DOCKERFILE.read_text()
+    assert re.search(r"^FROM \S+@sha256:", text, re.M), "the build file names no base"
+    assert unpinned_sources(text) == []
+
+
+@pytest.mark.spec_exempt("structural: twin of the base-image digest check")
+def test_the_digest_check_catches_a_tag_and_an_unchecked_download():
+    assert unpinned_sources(
+        "FROM ubuntu:22.04\n"
+        f"FROM ubuntu@sha256:{'a' * 64} AS ok\n"
+        "ADD https://example.org/boot.sh /boot.sh\n"
+        f"ADD --checksum=sha256:{'b' * 64} \\\n    https://example.org/ok.sh /ok.sh\n"
+    ) == ["FROM ubuntu:22.04", "ADD https://example.org/boot.sh /boot.sh"]
 
 
 @pytest.mark.spec("pod.pins-torch")
@@ -316,30 +350,146 @@ def test_the_telemetry_check_catches_a_switch_left_out_or_left_on():
     ]
 
 
-# --- build-image publishes what the pod pulls (change 0004, D9) --------------
+# --- The image is built on request and recorded (change 0006, design D9) -----------
 
 
-@pytest.mark.spec("pod.image-prune-is-default-branch-only")
-def test_the_registry_prune_never_runs_off_the_default_branch():
-    # Measured 2026-09-10. `latest` is tagged only on the default branch, but the prune
-    # step ran on EVERY push — so running build-image against a feature branch pushed a
-    # sha- tag and then deleted every older version, INCLUDING the only `latest` that
-    # existed. `up.sh` defaults to :latest, so three pods failed with
-    # IMAGE_NOT_FOUND/manifest unknown against a registry holding one sha- tag.
-    #
-    # A green workflow run is not the check: that run WAS green. The destructive step has
-    # to be gated on the branch that also produces the tag it is allowed to supersede.
-    text = BUILD_IMAGE.read_text()
-    prune = [ln for ln in text.splitlines() if "delete-package-versions" in ln]
-    assert prune, "build-image no longer prunes; delete this guard with the step"
+def workflow_faults(workflow: str) -> list[str]:
+    """Return how the image workflow misses being built on request only, unpruned, by SHA.
 
-    block = text.split("delete-package-versions", 1)[1]
-    guarded = "default_branch" in text.split("delete-package-versions")[0].rsplit("- name:", 1)[-1]
-    assert guarded, (
-        "the prune step must be gated on the default branch — off it, the run deletes "
-        "the `latest` it cannot republish"
+    e.g. a workflow triggered `on: push` -> ["a manual request its only trigger", ...]
+    """
+    faults = []
+    triggers = re.search(r"^on:\n((?:[ \t]+.*\n|\n)*)", workflow, re.M)
+    events = re.findall(r"^  (\w+):", triggers[1], re.M) if triggers else []
+    if events != ["workflow_dispatch"]:
+        faults.append("a manual request its only trigger")
+    if not re.search(r"^\s+tag:\n(?:\s+.*\n)*?\s+required: true$", workflow, re.M):
+        faults.append("a required tag")
+    if not re.search(r'if \[ "\$REQUESTED" = "latest" \]; then\n\s+echo .*\n\s+exit 1', workflow):
+        faults.append("latest refused")
+    if "delete-package-versions" in workflow:
+        faults.append("no registry version deleted")
+    for action in re.findall(r"uses:\s*(\S+)", workflow):
+        if not re.fullmatch(r"[\w.-]+/[\w.-]+@[0-9a-f]{40}", action):
+            faults.append(f"{action} pinned by commit SHA")
+    return faults
+
+
+@pytest.mark.spec("pod.image-built-on-request")
+def test_the_image_is_built_only_on_request_and_never_pruned():
+    assert workflow_faults(BUILD_IMAGE.read_text()) == []
+
+
+@pytest.mark.spec_exempt("structural: twin of the image workflow's trigger check")
+def test_the_workflow_check_catches_a_push_trigger_a_prune_and_a_moving_tag():
+    pruning = (
+        "on:\n  workflow_dispatch:\n  push:\n    branches: [main]\n\njobs:\n  b:\n    steps:\n"
+        "      - uses: actions/checkout@v4\n"
+        "      - uses: actions/delete-package-versions@v5\n"
     )
-    assert "min-versions-to-keep" in block
+    assert workflow_faults(pruning) == [
+        "a manual request its only trigger",
+        "a required tag",
+        "latest refused",
+        "no registry version deleted",
+        "actions/checkout@v4 pinned by commit SHA",
+        "actions/delete-package-versions@v5 pinned by commit SHA",
+    ]
+
+
+def record_faults(config: Mapping[str, object], derived: Mapping[str, str]) -> list[str]:
+    """Return each path whose recorded SHA-256 departs from the tree's, sorted.
+
+    e.g. {"files": {"Dockerfile": "<old>"}} beside a changed `Dockerfile` -> ["Dockerfile"]
+    """
+    files = config.get("files")
+    if not isinstance(files, dict):
+        return ["config/image.json records no files"]
+    names = sorted({str(name) for name in files} | set(derived))
+    return [name for name in names if files.get(name) != derived.get(name)]
+
+
+@pytest.mark.spec("pod.image-record-matches-the-tree")
+def test_the_build_record_agrees_with_the_tree():
+    derived = record()
+    assert {
+        "Dockerfile",
+        "constraints.txt",
+        "synthetic_portraits/pod_start.py",
+        "synthetic_portraits/provision.py",
+        "config/models.json",
+    } <= set(derived)
+    assert record_faults(json.loads(IMAGE_CONFIG.read_text()), derived) == []
+
+
+@pytest.mark.spec_exempt("structural: twin of test_the_build_record_agrees_with_the_tree")
+def test_the_record_check_catches_a_file_edited_after_the_record(tmp_path: Path):
+    (tmp_path / "Dockerfile").write_text("FROM x\nCOPY a.py /a.py\n")
+    (tmp_path / "a.py").write_text("one\n")
+    config: dict[str, object] = {"files": record(tmp_path)}
+    assert record_faults(config, record(tmp_path)) == []
+    (tmp_path / "a.py").write_text("two\n")
+    assert record_faults(config, record(tmp_path)) == ["a.py"]
+    (tmp_path / "Dockerfile").write_text("FROM x\nCOPY a.py /a.py\nCOPY b.py /b.py\n")
+    (tmp_path / "b.py").write_text("")
+    assert record_faults(config, record(tmp_path)) == ["Dockerfile", "a.py", "b.py"]
+    assert record_faults({}, record(tmp_path)) == ["config/image.json records no files"]
+
+
+@pytest.mark.spec("pod.image-record-matches-the-tree")
+@pytest.mark.parametrize(
+    "line",
+    [
+        "COPY --chmod=755 a.py /a.py",
+        "COPY a.py b.py /opt/",
+        "ADD a.py /a.py",
+        "add a.py /a.py",
+        "ADD https://example.org/a.py /a.py",
+    ],
+)
+def test_the_record_refuses_a_copy_it_cannot_read(line: str):
+    with pytest.raises(ValueError, match=re.escape(repr(line))):
+        copied(f"FROM x\nCOPY ok.py /ok.py\n{line}\n")
+
+
+@pytest.mark.spec("pod.image-record-matches-the-tree")
+def test_the_record_reads_past_a_checksummed_url_and_an_image_copy():
+    dockerfile = (
+        "FROM x\nCOPY a.py /a.py\n"
+        f"ADD --checksum=sha256:{'0' * 64} \\\n    https://example.org/b /b\n"
+        "COPY --from=builder /c /c\n"
+    )
+    assert copied(dockerfile) == ["a.py"]
+
+
+def unprinted_record(workflow: str) -> list[str]:
+    """Return what the workflow's summary lacks of the digest and the build record."""
+    faults = []
+    if not re.search(r"\$\{\{ steps\.build\.outputs\.digest \}\}", workflow):
+        faults.append("the digest")
+    printed = re.search(
+        r"python3 tools/image_record\.py\n(?:.*\n)*?.*>> \"\$GITHUB_STEP_SUMMARY\"", workflow
+    )
+    if not printed:
+        faults.append("the build record")
+    checkout = workflow.find("actions/checkout@")
+    if checkout < 0 or (printed and checkout > printed.start()):
+        faults.append("its own checkout first")
+    return faults
+
+
+@pytest.mark.spec("pod.image-workflow-prints-the-record")
+def test_the_workflow_prints_the_digest_and_the_build_record():
+    assert unprinted_record(BUILD_IMAGE.read_text()) == []
+
+
+@pytest.mark.spec_exempt("structural: twin of the workflow's record check")
+def test_the_record_print_check_catches_a_summary_without_the_record():
+    assert unprinted_record("steps:\n  - run: echo hi\n") == [
+        "the digest",
+        "the build record",
+        "its own checkout first",
+    ]
 
 
 # --- check_face.py runs as documented (change 0004, D10) ---------------------

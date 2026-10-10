@@ -20,6 +20,9 @@ files and the annotated tag are one line — they agree, or the release halts.
   for ComfyUI through the tunnel, the session closed on every exit. `synthetic_portraits/gpu.py` is gpunit's one seam.
 - **The pod boots in Python under gpunit's `boot.sh`**: `pod_start.py` maps the models onto the volume and runs
   `provision.py fetch` over `config/models.json`, each file SHA-256 verified, then execs ComfyUI.
+- **The image is pinned and recorded**: `FROM` by digest; `build-image.yml` builds only on a dispatched tag,
+  refuses `latest`, prunes nothing, pins actions by SHA, and prints the digest and `tools/image_record.py`'s
+  record, which `config/image.json` holds and a test re-derives.
 
 ### Removed
 

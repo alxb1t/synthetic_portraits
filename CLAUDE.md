@@ -21,8 +21,8 @@ package is **stdlib-only**, and **no test reaches a GPU or the network**.
 The `Makefile` declares it and notes each command; CI runs `make gate` too.
 
 **`docker build --check` is deliberately *not* in the gate** — it needs a running Docker daemon, and the
-gate must run on any checkout, offline. `build-image.yml` does a real image build on every push to
-`main`, which subsumes it; run it by hand for image-as-code work. `bash -n` needs no entry either: no
+gate must run on any checkout, offline. `build-image.yml` does a real image build when dispatched with a
+tag, which subsumes it; dispatch it for image-as-code work. `bash -n` needs no entry either: no
 shell script is left — the pod boots in Python — and `tests/test_infra.py` holds the tree to that.
 
 **External effects are faked at four seams**, which is what keeps the suite offline:

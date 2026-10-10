@@ -116,7 +116,7 @@ make gate
 They cover, in order: the environment (certifying what `uv.lock` pins), format, lint, types
 and the test suite. `docker build --check` is deliberately outside the gate (it needs a
 running Docker daemon); the image is built for real by `.github/workflows/build-image.yml`
-on every push to `main`.
+when it is dispatched with a tag, and its summary prints the digest and the build record.
 
 Work is defined before it is built, as a change under `openspec/changes/`. See
 [`CLAUDE.md`](CLAUDE.md) for how a change is cut here.

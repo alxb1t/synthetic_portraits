@@ -10,8 +10,8 @@
 # The exact ComfyUI ref is confirmed and relocked against the live pod in Phase 5 — the
 # image mirrors the placeholder-then-relock rule.
 
-ARG CUDA_IMAGE=nvidia/cuda:12.8.1-cudnn-runtime-ubuntu22.04
-FROM ${CUDA_IMAGE} AS base
+# The base by digest: the multi-arch index `docker buildx imagetools inspect <tag>` resolves.
+FROM nvidia/cuda:12.8.1-cudnn-runtime-ubuntu22.04@sha256:17e2934e1fa96152b14f78078bfbafd0f00f391df995dc6c641a720fce1202bb AS base
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1

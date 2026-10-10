@@ -1,24 +1,45 @@
 name: build-image
 
-# GPU image published to GHCR (public) so the RunPod pod can pull it in Phases 5-6.
-# Rebuilds on every push to main (plus manual dispatch and version tags); buildx gha
-# cache keeps unchanged-layer rebuilds cheap.
+# Built on request only: every image that exists was asked for, and its digest and build
+# record are in the run's summary. A pod boots that digest from `gpunit.toml`, never a
+# tag, so `latest` is refused rather than published, and no version is ever pruned.
+# Actions are pinned by commit SHA. Why: 0006-gpunit-integration design D9.
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-    tags:
-      - "v*"
+    inputs:
+      tag:
+        description: Image tag to publish — a release candidate, never `latest`
+        required: true
 
 jobs:
-  build-and-push:
-    runs-on: ubuntu-latest
+  build:
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v4
+      # A newline in the input would be honoured as a second tag by the action's
+      # newline-separated `tags` field. Validate before use, and let the build step
+      # read a step output so the raw input is never interpolated into `tags`.
+      - name: Resolve and validate the image tag
+        id: tag
+        env:
+          REQUESTED: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ "$REQUESTED" = "latest" ]; then
+            echo "::error::a pod boots a digest, never 'latest'; name a release candidate."
+            exit 1
+          fi
+          case "$REQUESTED" in
+            '' | *[!A-Za-z0-9._-]*)
+              echo "::error::tag must match ^[A-Za-z0-9._-]+\$"
+              exit 1
+              ;;
+          esac
+          echo "tag=$REQUESTED" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       # The cu128 torch + ComfyUI image is ~7 GB; default runners have only ~14 GB
       # free, which fills mid-build and the runner is reaped (job shows "cancelled").
@@ -32,55 +53,35 @@ jobs:
           sudo docker image prune -af || true
           echo "after:"; df -h /
 
-      - name: Set up Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Image metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ghcr.io/${{ github.repository }}
-          tags: |
-            type=ref,event=tag
-            type=sha
-            type=raw,value=latest,enable={{is_default_branch}}
-
-      - name: Build and push
-        uses: docker/build-push-action@v6
+      - id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          # Single-platform image; skip the provenance attestation so each build is
-          # ONE manifest (no untagged child manifests) — makes the prune below safe.
+          tags: ghcr.io/alxb1t/synthetic_portraits:${{ steps.tag.outputs.tag }}
+          # One manifest per build, so the digest reported below is the one a pod pulls.
           provenance: false
-          cache-from: type=gha
-          cache-to: type=gha,mode=min
 
-      # Keep only the latest image in the registry: after a successful push, delete
-      # every older version. Safe because provenance:false makes each build a single
-      # manifest, so keeping the newest 1 can never orphan a referenced child manifest.
-      #
-      # DEFAULT BRANCH ONLY. `latest` is tagged by the metadata step above via
-      # `enable={{is_default_branch}}`, so a feature-branch run pushes a sha- tag and
-      # nothing else — and this prune would then delete the `latest` that run cannot
-      # republish. That happened on 2026-09-09 (run 34382018386, branch
-      # v0.4_restore_image_build): the run was green and left the registry holding one
-      # sha- tag, after which every pod created from up.sh's `:latest` default failed
-      # with IMAGE_NOT_FOUND. The destructive step is gated on the branch that also
-      # produces the tag it is allowed to supersede. See design D9.
-      - name: Prune old GHCR versions (keep only latest)
-        if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
-        uses: actions/delete-package-versions@v5
-        with:
-          package-name: ${{ github.event.repository.name }}
-          package-type: container
-          min-versions-to-keep: 1
+      # The digest is the pin `config/image.json` and `gpunit.toml` take; the tag is a label.
+      - name: Report the digest
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          echo "Image: ghcr.io/alxb1t/synthetic_portraits:${TAG}@${DIGEST}" >> "$GITHUB_STEP_SUMMARY"
+
+      # What the image was built from: `config/image.json`'s `files` must equal it.
+      - name: Report the build record
+        run: |
+          set -euo pipefail
+          {
+            echo '```json'
+            python3 tools/image_record.py
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
