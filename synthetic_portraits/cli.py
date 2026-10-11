@@ -118,6 +118,29 @@ def await_server(
             sleep(poll_s)
 
 
+def _say(line: str) -> None:
+    """Write one line to stderr; a dead pipe or a closed stream ends no teardown.
+
+    The sink gpunit is handed, so it guards as gpunit's own does: a raise here would cut a
+    pod's teardown short and leave it billing.
+    """
+    try:
+        print(line, file=sys.stderr, flush=True)
+    except BrokenPipeError:
+        # Point the dead stream at the null device, so the interpreter's last flush cannot
+        # fail on the buffered line and exit 120. A stream with no descriptor is only swallowed.
+        try:
+            null = os.open(os.devnull, os.O_WRONLY)
+            try:
+                os.dup2(null, sys.stderr.fileno())
+            finally:
+                os.close(null)
+        except (OSError, ValueError, AttributeError):
+            pass
+    except (OSError, ValueError):
+        pass
+
+
 def _on_pod(
     render: Callable[[ComfyTransport], int],
     open_session: gpu.OpenSession,
@@ -127,21 +150,17 @@ def _on_pod(
 
     The batch's code · 1 a refusal · 3 the create's answer was lost · 128+n a signal.
     """
-
-    def say(line: str) -> None:
-        print(line, file=sys.stderr)
-
     environ = {**os.environ, **gpu.read_env(REPOSITORY / ".env")}
     try:
-        with open_session(REPOSITORY, environ, say) as session:
-            say(f"session image: {session.image}")
+        with open_session(REPOSITORY, environ, _say) as session:
+            _say(f"session image: {session.image}")
             client = connect(f"http://127.0.0.1:{session.port(POD_PORT)}")
             if not await_server(client.system_stats, wait_s=WAIT_S, poll_s=POLL_S):
-                say(f"refused: the render server did not answer within {WAIT_S:g}s")
+                _say(f"refused: the render server did not answer within {WAIT_S:g}s")
                 return 1
             return render(client)
     except BaseException as fault:
-        code = gpu.fault_exit(fault, say)
+        code = gpu.fault_exit(fault, _say)
         if code is None:
             raise
         return code

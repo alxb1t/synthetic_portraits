@@ -443,24 +443,34 @@ class _FakeSession:
 class _FakeOpener:
     """Stand in for `gpu.open_session`: yield a session, record its open and its close."""
 
-    def __init__(self, *, on_open: BaseException | None = None, on_close: Exception | None = None):
+    def __init__(
+        self,
+        *,
+        on_open: BaseException | None = None,
+        on_close: Exception | None = None,
+        teardown_lines: tuple[str, ...] = (),
+    ):
         self.on_open = on_open
         self.on_close = on_close
+        self.teardown_lines = teardown_lines
         self.opened: list[tuple[Path, dict[str, str]]] = []
         self.closed = False
         self.session = _FakeSession()
 
     def __call__(self, root, environ, say):
         self.opened.append((root, dict(environ)))
-        return self._block()
+        return self._block(say)
 
     @contextmanager
-    def _block(self):
+    def _block(self, say):
         if self.on_open is not None:
             raise self.on_open
         try:
             yield self.session
         finally:
+            # gpunit says each teardown step through the caller's sink, as it goes.
+            for line in self.teardown_lines:
+                say(line)
             self.closed = True
             if self.on_close is not None:
                 raise self.on_close
@@ -555,6 +565,27 @@ def test_a_failed_teardown_exits_1_naming_the_teardown_that_reads_the_key(tmp_pa
 
     assert rc == 1
     assert "uv run --env-file .env gpunit down" in capsys.readouterr().err
+
+
+class _DeadPipe:
+    """A stderr whose reader has gone, as under `generate.py --pod ... 2>&1 | head`."""
+
+    def write(self, text):
+        raise BrokenPipeError(32, "Broken pipe")
+
+    def flush(self):
+        raise BrokenPipeError(32, "Broken pipe")
+
+
+@pytest.mark.spec("pod.session-closes-on-every-exit")
+def test_a_dead_stderr_pipe_ends_no_teardown(tmp_path, monkeypatch):
+    opener = _FakeOpener(teardown_lines=("deleting the pod", "sweeping the account"))
+    monkeypatch.setattr(sys, "stderr", _DeadPipe())
+
+    rc, _ = _on_pod(tmp_path, opener, FakeComfyClient())
+
+    assert rc == 0
+    assert opener.closed
 
 
 @pytest.mark.spec("pod.session-closes-on-every-exit")

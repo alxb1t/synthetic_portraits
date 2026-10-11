@@ -40,11 +40,11 @@ generate.py --pod ─▶ gpunit session (gpunit.toml) ─▶ RunPod pod, image b
      ComfyUI /prompt → /history → /view ◀─ SSH tunnel ─┘  (headless; torn down on exit)
 ```
 
-- **`synthetic_portraits/`** — the runtime package (stdlib only, but `gpunit` behind
-  `gpu.py` for `--pod`): a `ComfyTransport` seam, trace-based prompt injection, a name→model registry, the
-  render pipeline, and the CLI. `pod_start.py` boots the pod under gpunit's `boot.sh`
-  (maps the models onto the volume, fetches them through `provision.py` and
-  `config/models.json`, launches ComfyUI).
+- **`synthetic_portraits/`** — the runtime package (stdlib only, but `gpunit` behind `gpu.py` for
+  `--pod`): a `ComfyTransport` seam, trace-based prompt injection, a name→model registry, the
+  render pipeline, and the CLI. `pod_start.py` boots the pod under gpunit's `boot.sh` (maps the
+  models onto the volume, fetches them through `provision.py` and `config/models.json`, launches
+  ComfyUI).
 - **`gpunit.toml`** — the GPU session's spec: the image pin, the cards, the ceiling, the volume.
 - **`workflows/realvis-txt2img.json`** — the ComfyUI API-format graph.
 - **`scripts/check_face.py`** — offline antelopev2 detectability assertion for the demo set.
@@ -92,8 +92,9 @@ Against a ComfyUI you run yourself, drop `--pod` and pass `--server <url>` (defa
 `generate.py` flags: `--prompt` **or** `--prompts <file>` (mutually exclusive — the latter is a
 batch / character sheet), `--identity <hero.png>` (same person via InstantID; auto-selects the
 identity graph), `--model` (default `realvis-txt2img`), `--negative`, `--width` / `--height`
-(default 832×1216), `--seed`, `-n/--count`, `--out`, and `--pod` **or** `--server <url>`. The pipeline auto-regenerates
-(re-seeds) until each image has exactly one antelopev2-detectable face, then reports any it can't.
+(default 832×1216), `--seed`, `-n/--count`, `--out`, and `--pod` **or** `--server <url>`. The
+pipeline auto-regenerates (re-seeds) until each image has exactly one antelopev2-detectable face,
+then reports any it can't.
 
 The human-verified demo set lives in [`examples/`](examples/): a full-height **hero** (default
 path) plus a **same-person character sheet** — the same synthetic woman across varied poses,

@@ -13,29 +13,36 @@ files and the annotated tag are one line — they agree, or the release halts.
 
 ### Added
 
-- **`gpunit.toml` declares the render session's GPU**: the pin, the cards, the floors, the 45-minute ceiling
-  and the volume. `config/image.json` carries a placeholder digest no pod can pull until the image is rebuilt.
-- **`gpunit` is a runtime dependency, pinned at `v0.2.0`**, the exception `CLAUDE.md` names beside `faces`.
-- **`generate.py --pod` renders a batch through one gpunit session**: the image it booted printed, a 900 s wait
-  for ComfyUI through the tunnel, the session closed on every exit. `synthetic_portraits/gpu.py` is gpunit's one seam.
-- **The pod boots in Python under gpunit's `boot.sh`**: `pod_start.py` maps the models onto the volume and runs
-  `provision.py fetch` over `config/models.json`, each file SHA-256 verified, then execs ComfyUI.
-- **The image is pinned and recorded**: `FROM` by digest; `build-image.yml` builds only on a dispatched tag,
-  refuses `latest`, prunes nothing, pins actions by SHA, and prints the digest and `tools/image_record.py`'s
-  record, which `config/image.json` holds and a test re-derives.
-- **The pod image is pinned at `v0.6-rc1`** (`sha256:eb673946…861c`), proved by one `--pod` render on a
-  fresh volume: provisioned, rendered, one antelopev2 face, pod deleted, in 6.5 minutes.
+- **`gpunit.toml` declares the render session's GPU**: the pin, the cards, the floors, the 45-minute
+  ceiling and the volume. `config/image.json` carries a placeholder digest no pod can pull until the
+  image is rebuilt.
+- **`gpunit` is a runtime dependency, pinned at `v0.2.0`**, the exception `CLAUDE.md` names beside
+  `faces`.
+- **`generate.py --pod` renders a batch through one gpunit session**: the image it booted printed, a
+  900 s wait for ComfyUI through the tunnel, the session closed on every exit.
+  `synthetic_portraits/gpu.py` is gpunit's one seam.
+- **The pod boots in Python under gpunit's `boot.sh`**: `pod_start.py` maps the models onto the
+  volume and runs `provision.py fetch` over `config/models.json`, each file SHA-256 verified, then
+  execs ComfyUI.
+- **The image is pinned and recorded**: `FROM` by digest; `build-image.yml` builds only on a
+  dispatched tag, refuses `latest`, prunes nothing, pins actions by SHA, and prints the digest and
+  `tools/image_record.py`'s record, which `config/image.json` holds and a test re-derives.
+- **The pod image is pinned at `v0.6-rc1`** (`sha256:eb673946…861c`), proved by one `--pod` render
+  on a fresh volume: provisioned, rendered, one antelopev2 face, pod deleted, in 6.5 minutes.
 
 ### Changed
 
-- **README's usage is one `--pod` command**, with `uv run --env-file .env gpunit down` for a session left behind.
-  `CLAUDE.md`'s spend rule names `--pod`, the 45-minute ceiling (~$0.30 a session) and the post-run MCP check.
+- **README's usage is one `--pod` command**, with `uv run --env-file .env gpunit down` for a session
+  left behind. `CLAUDE.md`'s spend rule names `--pod`, the 45-minute ceiling (~$0.30 a session) and
+  the post-run MCP check.
 
 ### Removed
 
-- **`infra/start.sh` and `download_models.sh`**: the start module and the provisioner replace them, under the gate.
-- **`infra/up.sh`, `infra/down.sh` and the HTTP proxy route**: gpunit creates, reaches and deletes the pod.
-  `.env.example` holds the key alone; the `User-Agent` now names this client rather than passing a proxy's filter.
+- **`infra/start.sh` and `download_models.sh`**: the start module and the provisioner replace them,
+  under the gate.
+- **`infra/up.sh`, `infra/down.sh` and the HTTP proxy route**: gpunit creates, reaches and deletes
+  the pod. `.env.example` holds the key alone; the `User-Agent` now names this client rather than
+  passing a proxy's filter.
 
 ## [0.5.0] - 2026-10-05
 
