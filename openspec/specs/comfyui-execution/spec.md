@@ -114,10 +114,8 @@ server, no network and no GPU.
 
 ### Requirement: Every request to the render server identifies its client
 
-The standard library's default user agent is refused by the edge proxy that fronts a pod when no
-tunnelled route exists — the request is rejected before it reaches the render server, so a failure that
-is purely about client identification appears as an unexplained transport error. Every request the
-runtime makes to the render server SHALL therefore carry an explicit, non-default `User-Agent` header.
+Every request the runtime makes to the render server SHALL carry an explicit, non-default `User-Agent`
+header that names this client, so the server's log says who asked for each render.
 
 The header SHALL be applied uniformly across every call — submitting a graph, reading a result, fetching
 an image and uploading one — so no single call path can be left with the default. Setting it SHALL NOT

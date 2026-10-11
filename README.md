@@ -4,10 +4,10 @@ A self-hosted, headless pipeline: **text prompt → photoreal upper-body image o
 who does not exist** — face, torso, arms, hands, and clothes — using open SDXL models
 (**RealVisXL V5.0**) via **ComfyUI** on an on-demand **RunPod** GPU.
 
-**Status:** **v0.5.0** is the latest release — the quality gate is declared once, in the
-`Makefile`, and CI runs `make gate`. It follows v0.4.0: a buildable pod image again, a registry
-prune that no longer deletes the tag the pod pulls, and pod bring-up that is bounded, tears down
-what it cannot reach, and fails fast on a dead container.
+**Status:** **v0.6.0** is the latest release — GPU sessions through gpunit: `generate.py --pod`
+opens a session, renders the batch and tears it down, the pod boots in Python, and the image is
+pinned by digest. No shell script is left. It follows v0.5.0, where the quality gate is declared
+once, in the `Makefile`, and CI runs `make gate`.
 See [`CHANGELOG.md`](CHANGELOG.md).
 
 One prompt → one person; another prompt → another person. Clothing and pose are driven from
@@ -34,79 +34,68 @@ A synthetic subject carries no personal data, so the output can be used and publ
 ## How it works
 
 ```
-repo → GHCR Docker image → RunPod pod (RTX-class GPU, cu128) → network volume (models)
-     → SSH tunnel → generate.py drives ComfyUI /prompt → /history → /view (headless)
+generate.py --pod ─▶ gpunit session (gpunit.toml) ─▶ RunPod pod, image by digest
+                                                       │  boot.sh ─▶ pod_start.py
+                                                       │  models on the network volume
+     ComfyUI /prompt → /history → /view ◀─ SSH tunnel ─┘  (headless; torn down on exit)
 ```
 
-- **`synthetic_portraits/`** — the runtime package (zero third-party dependency, stdlib
-  only): a `ComfyTransport` seam, trace-based prompt injection, a name→model registry, the
-  render pipeline, and the CLI.
-- **`infra/`** — `up.sh` / `down.sh` provision and tear down the pod (SSH tunnel access);
-  `start.sh` boots it (installs the SSH key, fetches models onto the volume, launches
+- **`synthetic_portraits/`** — the runtime package (stdlib only, but `gpunit` behind `gpu.py` for
+  `--pod`): a `ComfyTransport` seam, trace-based prompt injection, a name→model registry, the
+  render pipeline, and the CLI. `pod_start.py` boots the pod under gpunit's `boot.sh` (maps the
+  models onto the volume, fetches them through `provision.py` and `config/models.json`, launches
   ComfyUI).
+- **`gpunit.toml`** — the GPU session's spec: the image pin, the cards, the ceiling, the volume.
 - **`workflows/realvis-txt2img.json`** — the ComfyUI API-format graph.
 - **`scripts/check_face.py`** — offline antelopev2 detectability assertion for the demo set.
 
 ## Usage
 
-Prerequisites: [uv](https://docs.astral.sh/uv/), a RunPod account, and the config in `.env`
-(copy `.env.example` → `.env`, fill in `RUNPOD_API_KEY`, `RUNPOD_NETWORK_VOLUME_ID`, etc.).
+Prerequisites: [uv](https://docs.astral.sh/uv/), a RunPod account, and `.env` holding the key
+(copy `.env.example` → `.env`, fill in `RUNPOD_API_KEY`). Everything else the session needs —
+the image pin, the cards, the 45-minute ceiling, the volume — is in `gpunit.toml`.
 
 > **The CLI needs the `faces` group, not just `check_face.py`.** `generate.py` builds the real
-> antelopev2 detector on every run, so install the group **before** bringing a pod up — it fails
-> fast and names the group if you forget, but a pod you started first is already billing.
+> antelopev2 detector on every run; without the group it fails fast, naming it, before any pod
+> is opened.
 
 ```bash
-# 0. Install the optional face-detection group. The CLI needs it, not only step 3.
+# 0. Install the optional face-detection group. The CLI needs it, not only step 2.
 uv sync --group faces
 
-# 1. Bring up a GPU pod (⚠️ metered — bills per second until you tear it down).
-#    Prints an SSH tunnel command; run it in another shell to expose localhost:8188.
-#    If the pod never becomes reachable, up.sh tears it down itself (180s; 420s with
-#    RUNPOD_EXPOSE_HTTP=1) rather than leaving it billing.
-infra/up.sh
-ssh -i ~/.ssh/id_ed25519_runpod -N -L 8188:localhost:8188 root@<ip> -p <port>
-
-# 2. Generate headless. The hardened default graph (latent hi-res + FaceDetailer) yields a
-#    clean, antelopev2-detectable face at any framing — including full-height, head-to-toe.
-uv run --group faces python generate.py \
+# 1. Render on a rented GPU (⚠️ metered — bills per second). `--pod` opens one gpunit session
+#    for the whole batch, prints the image it booted, waits up to 900 s for ComfyUI, renders,
+#    and tears the pod down on every way out. The hardened default graph (latent hi-res +
+#    FaceDetailer) yields a clean, antelopev2-detectable face at any framing.
+uv run --group faces python generate.py --pod \
   --prompt "full body photo of a woman, full height, casual jacket and jeans, front facing" \
   --seed 42 -n 3 --out outputs
 
-# 2b. Same person across shots — point --identity at a hero face (InstantID). Pair it with
+# 1b. Same person across shots — point --identity at a hero face (InstantID). Pair it with
 #     --prompts (one prompt per line) to render a same-person character sheet with auto-regenerate.
-uv run --group faces python generate.py \
+uv run --group faces python generate.py --pod \
   --identity outputs/hero.png \
   --prompts sheet.txt \
   --seed 42 --out outputs
 
-# 3. Verify every image has exactly one antelopev2-detectable frontal face.
+# 2. Verify every image has exactly one antelopev2-detectable frontal face.
 uv run --group faces scripts/check_face.py outputs/*.png
 
-# 4. Tear the pod down (stops billing; the network volume persists the models).
-infra/down.sh
+# If a session is ever left behind (the command says so), delete it. gpunit reads no .env:
+# run from the repository root; a key your shell exports wins over the one in .env.
+uv run --env-file .env gpunit status
+uv run --env-file .env gpunit down
 ```
 
-### Reaching the pod: the tunnel is the supported path
-
-`generate.py` drives ComfyUI over the **SSH tunnel**, and that is the only path this project
-claims works. RunPod occasionally issues a pod that reaches `RUNNING` with no public IP and no
-port mapping, which the tunnel cannot reach at all. For that case `RUNPOD_EXPOSE_HTTP=1`
-publishes ComfyUI at `https://<pod id>-8188.proxy.runpod.net`, which needs no public IP.
-
-It is **off by default and deliberately so**: that URL is public and unauthenticated — RunPod's
-docs say the pod id gives "only obscurity, not security" — and ComfyUI has no auth of its own.
-When the provider issues no address at all, `up.sh` hands that URL over as the only route to the
-pod and prints the `--server` invocation for it — readiness there is a `GET /system_stats`, and
-whether a render goes through it is **still unproven**. Prefer the tunnel whenever there is one,
-and tear the pod down promptly: the exposure lasts as long as the pod does. Requests now carry an explicit `User-Agent`, without which Cloudflare rejects the
-stdlib client with error 1010 while answering `curl` normally.
+Against a ComfyUI you run yourself, drop `--pod` and pass `--server <url>` (default
+`$COMFY_URL`, else `http://127.0.0.1:8188`).
 
 `generate.py` flags: `--prompt` **or** `--prompts <file>` (mutually exclusive — the latter is a
 batch / character sheet), `--identity <hero.png>` (same person via InstantID; auto-selects the
 identity graph), `--model` (default `realvis-txt2img`), `--negative`, `--width` / `--height`
-(default 832×1216), `--seed`, `-n/--count`, `--out`, `--server`. The pipeline auto-regenerates
-(re-seeds) until each image has exactly one antelopev2-detectable face, then reports any it can't.
+(default 832×1216), `--seed`, `-n/--count`, `--out`, and `--pod` **or** `--server <url>`. The
+pipeline auto-regenerates (re-seeds) until each image has exactly one antelopev2-detectable face,
+then reports any it can't.
 
 The human-verified demo set lives in [`examples/`](examples/): a full-height **hero** (default
 path) plus a **same-person character sheet** — the same synthetic woman across varied poses,
@@ -115,8 +104,9 @@ exactly one antelopev2-detectable frontal face.
 
 ## Development
 
-Runtime code is **zero third-party dependency** (stdlib only). The dev toolchain is managed
-with uv; the ComfyUI transport and the face detector are both faked in tests, so **no test
+Runtime code is **stdlib only** except `gpunit` (`--pod`'s GPU session, itself stdlib only),
+imported only inside `synthetic_portraits/gpu.py`. The dev toolchain is managed with uv; the
+ComfyUI transport, the face detector and the GPU session are all faked in tests, so **no test
 touches a GPU or the network**.
 
 ### The quality gate
@@ -132,7 +122,7 @@ make gate
 They cover, in order: the environment (certifying what `uv.lock` pins), format, lint, types
 and the test suite. `docker build --check` is deliberately outside the gate (it needs a
 running Docker daemon); the image is built for real by `.github/workflows/build-image.yml`
-on every push to `main`.
+when it is dispatched with a tag, and its summary prints the digest and the build record.
 
 Work is defined before it is built, as a change under `openspec/changes/`. See
 [`CLAUDE.md`](CLAUDE.md) for how a change is cut here.

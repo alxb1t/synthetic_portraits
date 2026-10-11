@@ -1,9 +1,8 @@
-"""Image-as-code guardrails (Phase 3).
+"""Image-as-code guardrails: the build file, its constraints, the session's spec, the workflow.
 
-Locks the conventions the plan calls out — the cu128 pin (Blackwell/sm_120), the model
-download set, and shell-script syntax — as executable checks. No Docker build or network
-here; ``docker build --check`` is deliberately outside the gate (it needs a running
-Docker daemon) — ``.github/workflows/build-image.yml`` builds the image for real on push.
+No Docker build or network here; ``docker build --check`` is deliberately outside the gate
+(it needs a running Docker daemon) — ``.github/workflows/build-image.yml`` builds the image
+for real.
 """
 
 from __future__ import annotations
@@ -11,46 +10,74 @@ from __future__ import annotations
 import json
 import os
 import re
-import shutil
 import subprocess
 import sys
 import tempfile
+import tomllib
+from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
+from conftest import REPO_ROOT, repo_files
+from gpunit.spec import parse_ceiling
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+from tools.image_record import copied, instructions, record
+
 DOCKERFILE = REPO_ROOT / "Dockerfile"
+GPUNIT_SPEC = REPO_ROOT / "gpunit.toml"
+IMAGE_CONFIG = REPO_ROOT / "config" / "image.json"
 CONSTRAINTS = REPO_ROOT / "constraints.txt"
-DOWNLOAD = REPO_ROOT / "download_models.sh"
-START = REPO_ROOT / "infra" / "start.sh"
-UP = REPO_ROOT / "infra" / "up.sh"
-DOWN = REPO_ROOT / "infra" / "down.sh"
 BUILD_IMAGE = REPO_ROOT / ".github" / "workflows" / "build-image.yml"
 CHECK_FACE = REPO_ROOT / "scripts" / "check_face.py"
 
-SHELL_SCRIPTS = [DOWNLOAD, START, UP, DOWN]
+
+def shell_scripts(paths: list[str]) -> list[str]:
+    """Return each path that names a shell script."""
+    return [path for path in paths if path.endswith((".sh", ".bash"))]
 
 
-@pytest.mark.spec("pod.infra-files-present")
-def test_infra_files_exist():
-    for path in [DOCKERFILE, DOWNLOAD, START, UP, DOWN]:
-        assert path.exists(), path
+@pytest.mark.spec_exempt("structural: the pod boots in Python, and no shell script is left")
+def test_no_shell_script_is_left_in_the_repository():
+    assert shell_scripts(list(repo_files())) == []
 
 
-@pytest.mark.skipif(shutil.which("bash") is None, reason="bash not available")
-@pytest.mark.parametrize("script", SHELL_SCRIPTS, ids=lambda p: p.name)
-@pytest.mark.spec("pod.scripts-syntax-clean")
-def test_shell_scripts_pass_bash_syntax_check(script: Path):
-    result = subprocess.run(["bash", "-n", str(script)], capture_output=True, text=True)
-    assert result.returncode == 0, result.stderr
+@pytest.mark.spec_exempt("structural: twin of test_no_shell_script_is_left_in_the_repository")
+def test_the_shell_script_check_catches_a_script():
+    assert shell_scripts(["Dockerfile", "infra/up.sh", "boot.bash", "notes.md"]) == [
+        "infra/up.sh",
+        "boot.bash",
+    ]
 
 
-@pytest.mark.parametrize("script", SHELL_SCRIPTS, ids=lambda p: p.name)
-@pytest.mark.spec("pod.scripts-strict-mode")
-def test_shell_scripts_are_strict(script: Path):
-    # Fail fast on errors/unset vars/pipe failures.
-    assert "set -euo pipefail" in script.read_text()
+def unpinned_sources(dockerfile: str) -> list[str]:
+    """Return each `FROM` with no digest and each `ADD` of a URL with no checksum.
+
+    e.g. "FROM ubuntu:22.04" -> ["FROM ubuntu:22.04"]
+    """
+    found = []
+    for line in instructions(dockerfile):
+        if re.match(r"FROM\s", line) and not re.search(r"@sha256:[0-9a-f]{64}\b", line):
+            found.append(line)
+        if re.match(r"ADD\s", line) and "://" in line and "--checksum=sha256:" not in line:
+            found.append(line)
+    return found
+
+
+@pytest.mark.spec("pod.pins-base-by-digest")
+def test_every_image_built_from_carries_a_digest_and_every_url_a_checksum():
+    text = DOCKERFILE.read_text()
+    assert re.search(r"^FROM \S+@sha256:", text, re.M), "the build file names no base"
+    assert unpinned_sources(text) == []
+
+
+@pytest.mark.spec_exempt("structural: twin of the base-image digest check")
+def test_the_digest_check_catches_a_tag_and_an_unchecked_download():
+    assert unpinned_sources(
+        "FROM ubuntu:22.04\n"
+        f"FROM ubuntu@sha256:{'a' * 64} AS ok\n"
+        "ADD https://example.org/boot.sh /boot.sh\n"
+        f"ADD --checksum=sha256:{'b' * 64} \\\n    https://example.org/ok.sh /ok.sh\n"
+    ) == ["FROM ubuntu:22.04", "ADD https://example.org/boot.sh /boot.sh"]
 
 
 @pytest.mark.spec("pod.pins-torch")
@@ -166,6 +193,69 @@ def test_constraints_numpy_pin_can_hold_beside_every_other_pin():
         )
 
 
+# --- gpunit.toml is the session's spec: the pin, the floors, the ceiling, the volume -------
+
+
+def spec_faults(spec: Mapping[str, object], config: Mapping[str, object]) -> list[str]:
+    """Return each way `gpunit.toml` misses the pin, the floors, the ceiling or the volume.
+
+    e.g. `image = "ghcr.io/a/b:latest"`, no `volume` -> ["not config/image.json's pin", "no volume"]
+    """
+    faults = []
+    digest = str(config.get("digest", ""))
+    pinned = f"{config.get('image')}@{digest}"
+    if not re.fullmatch(r"sha256:[0-9a-f]{64}", digest) or spec.get("image") != pinned:
+        faults.append("not config/image.json's pin")
+    try:
+        ceiling_s = parse_ceiling(str(spec.get("ceiling", "")))
+    except ValueError:
+        ceiling_s = None
+    if ceiling_s is None or ceiling_s > 45 * 60:
+        faults.append("no ceiling within 45 minutes")
+    if not spec.get("volume"):
+        faults.append("no volume")
+    vram = spec.get("vram_gb")
+    if not (isinstance(vram, int) and vram >= 24):
+        faults.append("under 24 GB of card memory")
+    # torch's cu128 build, which the Blackwell cards need
+    if spec.get("cuda") != "12.8":
+        faults.append("not CUDA 12.8")
+    return faults
+
+
+@pytest.mark.spec("pod.session-spec-pins")
+def test_the_session_spec_pins_the_recorded_image_and_bounds_the_spend():
+    spec = tomllib.loads(GPUNIT_SPEC.read_text())
+    assert spec_faults(spec, json.loads(IMAGE_CONFIG.read_text())) == []
+
+
+@pytest.mark.spec_exempt("structural: twin of the session spec's pin check")
+def test_the_spec_check_catches_a_tag_a_long_ceiling_and_a_missing_floor():
+    config = {"image": "ghcr.io/a/b", "digest": "sha256:" + "0" * 64}
+    good = {
+        "image": "ghcr.io/a/b@sha256:" + "0" * 64,
+        "ceiling": "45m",
+        "volume": "v",
+        "vram_gb": 24,
+        "cuda": "12.8",
+    }
+    assert spec_faults(good, config) == []
+    assert spec_faults({**good, "image": "ghcr.io/a/b:latest"}, config) == [
+        "not config/image.json's pin"
+    ]
+    assert spec_faults(good, {"image": "ghcr.io/a/b", "digest": "latest"}) == [
+        "not config/image.json's pin"
+    ]
+    assert spec_faults({**good, "ceiling": "1h"}, config) == ["no ceiling within 45 minutes"]
+    assert spec_faults({**good, "ceiling": "45"}, config) == ["no ceiling within 45 minutes"]
+    bare = {"image": good["image"], "ceiling": "45m", "vram_gb": 16}
+    assert spec_faults(bare, config) == [
+        "no volume",
+        "under 24 GB of card memory",
+        "not CUDA 12.8",
+    ]
+
+
 @pytest.mark.spec("pod.pins-face-deps")
 def test_dockerfile_installs_requests():
     # ComfyUI imports `requests` (app/frontend_management.py) but does NOT declare it
@@ -174,535 +264,282 @@ def test_dockerfile_installs_requests():
     assert "requests" in DOCKERFILE.read_text()
 
 
-@pytest.mark.spec("pod.start-installs-ssh-key")
-def test_start_installs_ssh_public_key():
-    # FROM nvidia/cuda (not a RunPod base image) → start.sh must install RunPod's
-    # injected PUBLIC_KEY into authorized_keys itself, or the SSH tunnel can't auth.
-    text = START.read_text()
-    assert "PUBLIC_KEY" in text
-    assert "authorized_keys" in text
+def launch_faults(dockerfile: str, pyproject: str) -> list[str]:
+    """Return how the image misses starting through gpunit's boot script into the start module.
+
+    e.g. a build file whose only command is `CMD ["/opt/start.sh"]` -> every fault
+    """
+    faults = []
+    tag = re.search(r'gpunit@(v[0-9][^"]*)', pyproject)
+    boot = f"https://raw.githubusercontent.com/alxb1t/gpunit/{tag[1] if tag else '-'}/boot/boot.sh"
+    added = re.compile(
+        rf"^ADD --checksum=sha256:[0-9a-f]{{64}} \\\n\s+{re.escape(boot)} /opt/gpunit/boot.sh$",
+        re.M,
+    )
+    if not added.search(dockerfile):
+        faults.append("boot.sh added at gpunit's pinned tag with a checksum")
+    if not re.search(r'^ENTRYPOINT \["/opt/gpunit/boot.sh", "--"\]$', dockerfile, re.M):
+        faults.append("boot.sh as the entry point")
+    if not re.search(r'^CMD \["python3", "/opt/sp/pod_start.py"\]$', dockerfile, re.M):
+        faults.append("the start module as the command")
+    if "COPY synthetic_portraits/pod_start.py /opt/sp/pod_start.py" not in dockerfile:
+        faults.append("the start module copied in")
+    return faults
 
 
 @pytest.mark.spec("pod.launches-via-start")
-def test_dockerfile_launches_via_start_script():
-    text = DOCKERFILE.read_text()
-    assert "start.sh" in text
-    assert 'CMD ["/opt/start.sh"]' in text
+def test_the_image_starts_through_gpunits_boot_script_into_the_start_module():
+    pyproject = (REPO_ROOT / "pyproject.toml").read_text()
+    assert launch_faults(DOCKERFILE.read_text(), pyproject) == []
 
 
-@pytest.mark.spec("pod.download-idempotent")
-def test_download_is_idempotent_and_fetches_the_v0_2_model_set():
-    text = DOWNLOAD.read_text()
-    # Exact HF filename — the repo ships fp16/fp32 variants; the bare
-    # RealVisXL_V5.0.safetensors does NOT exist (a boot-time 404 crash-loop bug).
-    assert "RealVisXL_V5.0_fp16.safetensors" in text
-    assert "skip" in text.lower()  # skips files already present (idempotent)
-    url_lines = [ln for ln in text.splitlines() if "https://" in ln]
-    # v0.2 adds the InstantID stack + the FaceDetailer bbox model, from the pinned sources.
-    assert any("InstantX/InstantID" in ln and "ip-adapter.bin" in ln for ln in url_lines)
-    assert any("ControlNetModel" in ln for ln in url_lines)  # identity ControlNet
-    assert any("antelopev2" in ln for ln in url_lines)  # the 5-file insightface pack
-    assert any("face_yolov8m.pt" in ln for ln in url_lines)  # FaceDetailer bbox detector
-
-
-@pytest.mark.spec("pod.download-isolates")
-def test_download_isolates_models_into_their_target_dirs():
-    text = DOWNLOAD.read_text()
-    # Subfolder-isolated targets (dodge generic-filename collisions like config.json).
-    assert "instantid" in text  # models/instantid/ip-adapter.bin
-    assert "controlnet" in text  # models/controlnet/...
-    assert "insightface/models/antelopev2" in text  # the antelopev2 pack's ComfyUI path
-    assert "ultralytics/bbox" in text  # face_yolov8m.pt
-
-
-@pytest.mark.spec("pod.download-pins-revisions")
-def test_download_pins_immutable_commit_revisions():
-    # Supply chain (security S1): every HF `resolve/<ref>/` must pin an IMMUTABLE commit SHA,
-    # never the mutable `main` branch — so a moved ref (or a compromised mirror force-moving
-    # `main`) can't silently swap the bytes we fetch. The URLs interpolate a `*_REV` variable;
-    # assert no `main` ref, that each resolve ref is a `_REV` var (or a literal SHA), and that
-    # every `_REV` variable is assigned a real 40-hex commit SHA.
-    text = DOWNLOAD.read_text()
-    assert "resolve/main/" not in text, "model URLs must not use the mutable `main` ref"
-    refs = re.findall(r"/resolve/([^/]+)/", text)
-    assert refs, "expected pinned resolve URLs"
-    for ref in refs:
-        assert re.fullmatch(r"[0-9a-f]{40}", ref) or re.fullmatch(r"\$\{\w*REV\w*\}", ref), (
-            f"resolve ref is neither a 40-hex commit SHA nor a *_REV pin: {ref}"
-        )
-    rev_defs = re.findall(r"^\w*REV\w*=\"?([^\"\n]+)\"?", text, re.MULTILINE)
-    assert rev_defs, "expected *_REV pin definitions"
-    for rev in rev_defs:
-        assert re.fullmatch(r"[0-9a-f]{40}", rev), f"*_REV pin is not a 40-hex commit SHA: {rev}"
-
-
-@pytest.mark.spec("pod.download-verifies-sha256")
-def test_download_verifies_sha256_and_aborts_on_mismatch():
-    # Security S1: two weights are code-executing pickle (.bin/.pt) loaded via torch.load-style
-    # paths, from third-party mirrors. Every download must be SHA-256 verified, and a mismatch
-    # must ABORT (non-zero exit) so a swapped/corrupt file is never moved into place.
-    text = DOWNLOAD.read_text()
-    assert "sha256sum" in text
-    assert "exit 1" in text  # checksum mismatch aborts the script
-    # The pickle weights specifically carry their recorded SHA-256 (the highest-risk files).
-    assert "02b3618e36d803784166660520098089a81388e61a93ef8002aa79a5b1c546e1" in text  # ip-adapter
-    assert "717923c19b3f4bbf5250b728f1fa6b2cb72a33aed1d236ea9caf0e21ad943e5f" in text  # yolov8m
-
-
-@pytest.mark.spec("pod.download-verifies-sha256")
-def test_download_records_a_checksum_for_every_fetched_file():
-    # Every download call passes a SHA-256 argument (a `_SHA` var, a literal, or the antelope
-    # `ANTELOPE_SHAS[i]` array) — no unverified fetch slips through. And every `_SHA` pin is a
-    # real 64-hex digest.
-    text = DOWNLOAD.read_text()
-    download_calls = [ln for ln in text.splitlines() if re.match(r"\s*download ", ln)]
-    assert download_calls, "expected download calls"
-    for ln in download_calls:
-        assert re.search(r"[0-9a-f]{64}", ln) or "_SHA" in ln or "SHAS" in ln, ln
-    sha_defs = re.findall(r"^\w*_SHA=\"?([^\"\n]+)\"?", text, re.MULTILINE)
-    assert sha_defs, "expected *_SHA pin definitions"
-    for sha in sha_defs:
-        assert re.fullmatch(r"[0-9a-f]{64}", sha), f"*_SHA pin is not a 64-hex digest: {sha}"
-
-
-@pytest.mark.spec("pod.start-maps-model-dirs")
-def test_start_maps_the_v0_2_model_dirs_into_comfyui():
-    # ComfyUI code is in the image, weights on the volume — extra_model_paths must expose
-    # the new model folders (controlnet/instantid/ultralytics/insightface), not just checkpoints.
-    text = START.read_text()
-    for folder in ("controlnet", "instantid", "ultralytics", "insightface"):
-        assert folder in text, folder
-
-
-@pytest.mark.spec("pod.start-maps-model-dirs")
-def test_start_symlinks_hardcoded_model_dirs_to_the_volume():
-    # The Impact Subpack (UltralyticsDetectorProvider) and the InstantID node resolve models
-    # from ``folder_paths.models_dir/<x>`` directly and IGNORE extra_model_paths.yaml — so the
-    # yaml mapping alone leaves the bbox list empty and makes InstantID auto-download a broken
-    # (nested) antelopev2. start.sh must symlink those two dirs onto the volume before ComfyUI
-    # launches. (Discovered live in Phase 6.)
-    text = START.read_text()
-    for folder in ("ultralytics", "insightface"):
-        # a symlink of ComfyUI's models/<folder> -> the volume's <folder>
-        assert re.search(rf"ln -s\S*\s+\S*{folder}\S*\s+\S*models/{folder}", text), folder
-
-
-@pytest.mark.spec("pod.uses-rest-api")
-def test_pod_scripts_use_runpod_rest_api():
-    # Both talk to the documented REST base; auth is a bearer token from the env/.env,
-    # never a hardcoded secret.
-    for script in (UP, DOWN):
-        text = script.read_text()
-        assert "rest.runpod.io/v1" in text, script
-        assert "RUNPOD_API_KEY" in text, script
-        assert "Bearer" in text, script
-
-
-@pytest.mark.spec("pod.up-persists-id")
-def test_up_creates_a_gpu_pod_and_persists_its_id():
-    text = UP.read_text()
-    # Creates a pod (POST /pods) on a GPU with the models network volume attached, and
-    # records the pod id so down.sh can tear exactly it down.
-    assert "POST" in text
-    assert "/pods" in text
-    assert "gpuTypeIds" in text
-    assert "networkVolumeId" in text
-    assert ".pod_id" in text  # id persisted for teardown
-
-
-@pytest.mark.spec("pod.up-enables-ssh")
-def test_up_enables_ssh_tunnel_access():
-    text = UP.read_text()
-    # These SECURE + network-volume pods have no usable HTTP path (RunPod's Cloudflare
-    # proxy 403s API POSTs), so we drive ComfyUI over an SSH tunnel: inject the SSH
-    # public key, expose 22/tcp, and forward local 8188 to the pod.
-    assert "PUBLIC_KEY" in text
-    assert "22/tcp" in text
-    assert "-L" in text  # ssh local port-forward
-    assert ":localhost:" in text  # forwards the ComfyUI port through the tunnel
-
-
-@pytest.mark.spec("pod.down-deletes")
-def test_down_deletes_the_pod():
-    text = DOWN.read_text()
-    # Teardown is a DELETE against the recorded pod id — stops per-second billing.
-    assert "DELETE" in text
-    assert "/pods/" in text
-    assert ".pod_id" in text
-
-
-@pytest.mark.spec("pod.id-file-untracked")
-def test_pod_id_state_file_is_gitignored():
-    # The pod-id scratch file is per-run local state, never committed.
-    gitignore = (REPO_ROOT / ".gitignore").read_text()
-    assert ".pod_id" in gitignore
-
-
-# --- Bounded readiness, self-teardown, opt-in HTTP (change 0004, D3/D6) ------
-
-
-def _up_payload_ports(**env: str) -> list[str]:
-    """Run up.sh's payload builder with a controlled environment; return its ports list.
-
-    The heredoc is executed rather than pattern-matched, so this asserts what the script
-    actually sends to the provider rather than what its source appears to say.
-    """
-    match = re.search(r"python3 <<'PY'\n(.*?)\nPY\n", UP.read_text(), re.S)
-    assert match, "up.sh no longer contains the payload-builder heredoc"
-    snippet = match.group(1)
-    base = {
-        "RUNPOD_NAME": "test-pod",
-        "RUNPOD_IMG": "example/image:latest",
-        "RUNPOD_GPU": "TEST GPU",
-        "RUNPOD_DISK": "30",
-        "RUNPOD_MNT": "/runpod-volume",
-        "RUNPOD_VOL": "volumeid",
-        "RUNPOD_DC": "",
-        "RUNPOD_PUBKEY": "ssh-ed25519 AAAA test",
-    }
-    proc = subprocess.run(
-        [sys.executable, "-c", snippet],
-        env={**base, **env},
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    return json.loads(proc.stdout)["ports"]
-
-
-def _curl_invocations(path: Path) -> list[str]:
-    """Return each `curl` command in a shell script as one line, continuations joined.
-
-    A backslash-continued invocation is several source lines but one command, and its
-    flags may sit on any of them — so the flags are asserted against the joined command
-    rather than against the line the word ``curl`` happens to appear on.
-    """
-    joined = re.sub(r"\\\n\s*", " ", path.read_text())
-    return [
-        ln.strip()
-        for ln in joined.splitlines()
-        if re.search(r"(^|[\s$(`])curl\s", ln) and not ln.strip().startswith("#")
+@pytest.mark.spec_exempt("structural: twin of the image's launch check")
+def test_the_launch_check_catches_a_shell_start_and_a_boot_script_at_another_tag():
+    pyproject = '"gpunit @ git+https://github.com/alxb1t/gpunit@v0.2.0",'
+    assert launch_faults('CMD ["/opt/start.sh"]\n', pyproject) == [
+        "boot.sh added at gpunit's pinned tag with a checksum",
+        "boot.sh as the entry point",
+        "the start module as the command",
+        "the start module copied in",
+    ]
+    moved = DOCKERFILE.read_text().replace("gpunit/v0.2.0/", "gpunit/v0.1.0/")
+    assert launch_faults(moved, pyproject) == [
+        "boot.sh added at gpunit's pinned tag with a checksum"
     ]
 
 
-@pytest.mark.spec("pod.up-bounded-readiness")
-def test_every_provider_call_is_bounded_against_a_hung_connection():
-    # The readiness deadline is only tested BETWEEN iterations, so it can fire only if every
-    # curl inside the loop returns. curl has no default transfer timeout: a half-open TCP
-    # connection through a NAT, or a provider-side stall, blocks in the loop forever, SECONDS
-    # sails past the deadline, down.sh is never reached, and the pod bills for the length of
-    # the stall — the unbounded billing D6 exists to convert into a three-minute loss. The
-    # EXIT trap cannot help: it runs when the script exits, and the script is not exiting.
-    #
-    # down.sh is held to the same bar for the sharper version of the same failure: a teardown
-    # that hangs leaves the operator believing the pod was deleted while it is still billing.
-    for script in (UP, DOWN):
-        invocations = _curl_invocations(script)
-        assert invocations, f"{script.name} makes no curl call"
-        for call in invocations:
-            assert re.search(r"(--max-time|\s-m)\s", call), (
-                f"{script.name} calls curl with no transfer timeout, so it can hang "
-                f"past every deadline: {call}"
-            )
+# The switches the pod's libraries read, each set to turn its report or check off.
+TELEMETRY_OFF = {
+    "ORT_DISABLE_TELEMETRY": "1",
+    "HF_HUB_DISABLE_TELEMETRY": "1",
+    "NO_ALBUMENTATIONS_UPDATE": "1",
+    "DO_NOT_TRACK": "1",
+}
 
 
-@pytest.mark.skipif(shutil.which("bash") is None, reason="bash not available")
-@pytest.mark.spec("pod.up-warns-when-the-id-never-arrives")
-def test_up_says_a_pod_may_exist_when_the_id_cannot_be_read(tmp_path: Path):
-    # The parse half of the window. The provider answers, but the body carries no usable
-    # id — an unexpected shape, a truncated body, an error object. The script exits 1 and
-    # the operator concludes nothing was created, while .pod_id is absent so down.sh has
-    # nothing to delete and the pod bills until someone opens the console. No trap can
-    # cover it (there is no id to tear down by), so the failure must be SAID.
-    #
-    # Run rather than grepped: an earlier version of this test sliced the source for the
-    # warning text inside the `[ -z "$pod_id" ]` branch, which says the warning was
-    # written, not that anything reaches it.
-    proc = _run_up_with_stub_curl(tmp_path, "#!/bin/sh\nprintf '%s' '{\"error\": \"nope\"}'\n")
-
-    assert proc.returncode != 0, "a create response with no id must not report success"
-    assert "may have been created" in proc.stderr, (
-        f"the unreadable-id path must warn that a pod may be live and billing; got: {proc.stderr!r}"
-    )
-    assert "stub-pod-name" in proc.stderr, (
-        "the warning must name the pod so the console can be checked"
-    )
+def telemetry_left_on(dockerfile: str) -> list[str]:
+    """Return each telemetry switch the build file's `ENV` lines do not turn off."""
+    set_to: dict[str, str] = {}
+    for line in instructions(dockerfile):
+        if line.startswith("ENV "):
+            for pair in line[4:].split():
+                name, _, value = pair.partition("=")
+                set_to[name] = value
+    return [name for name, off in TELEMETRY_OFF.items() if set_to.get(name) != off]
 
 
-def _run_up_with_stub_curl(tmp_path: Path, curl_body: str) -> subprocess.CompletedProcess[str]:
-    """Execute a copy of ``up.sh`` against a stub ``curl``; return the finished process.
+@pytest.mark.spec("pod.telemetry-off")
+def test_the_image_turns_its_libraries_telemetry_off():
+    assert telemetry_left_on(DOCKERFILE.read_text()) == []
 
-    Offline and creates nothing: the script is copied out of the repository so the run reads
-    no real ``.env`` and cannot write the real ``infra/.pod_id``, and ``curl`` is shadowed on
-    ``PATH``, so no provider is contacted. ``start_new_session`` gives the copy its own
-    process group, so a stub that signals its group reaches the script and nothing else.
+
+@pytest.mark.spec_exempt("structural: twin of the image's telemetry check")
+def test_the_telemetry_check_catches_a_switch_left_out_or_left_on():
+    assert telemetry_left_on("ENV ORT_DISABLE_TELEMETRY=0 HF_HUB_DISABLE_TELEMETRY=1\n") == [
+        "ORT_DISABLE_TELEMETRY",
+        "NO_ALBUMENTATIONS_UPDATE",
+        "DO_NOT_TRACK",
+    ]
+
+
+# --- The image is built on request and recorded (change 0006, design D9) -----------
+
+
+def workflow_faults(workflow: str) -> list[str]:
+    """Return how the image workflow misses being built on request only, unpruned, by SHA.
+
+    e.g. a workflow triggered `on: push` -> ["a manual request its only trigger", ...]
     """
-    infra = tmp_path / "infra"
-    infra.mkdir()
-    for script in (UP, DOWN):
-        copy = infra / script.name
-        copy.write_text(script.read_text())
-        copy.chmod(0o755)
+    faults = []
+    triggers = re.search(r"^on:\n((?:[ \t]+.*\n|\n)*)", workflow, re.M)
+    events = re.findall(r"^  (\w+):", triggers[1], re.M) if triggers else []
+    if events != ["workflow_dispatch"]:
+        faults.append("a manual request its only trigger")
+    if not re.search(r"^\s+tag:\n(?:\s+.*\n)*?\s+required: true$", workflow, re.M):
+        faults.append("a required tag")
+    if not re.search(r'if \[ "\$REQUESTED" = "latest" \]; then\n\s+echo .*\n\s+exit 1', workflow):
+        faults.append("latest refused")
+    if "delete-package-versions" in workflow:
+        faults.append("no registry version deleted")
+    for action in re.findall(r"uses:\s*(\S+)", workflow):
+        if not re.fullmatch(r"[\w.-]+/[\w.-]+@[0-9a-f]{40}", action):
+            faults.append(f"{action} pinned by commit SHA")
+    return faults
 
-    stub_dir = tmp_path / "bin"
-    stub_dir.mkdir()
-    stub_curl = stub_dir / "curl"
-    stub_curl.write_text(curl_body)
-    stub_curl.chmod(0o755)
 
-    (tmp_path / "id_test.pub").write_text("ssh-ed25519 AAAA test\n")
+@pytest.mark.spec("pod.image-built-on-request")
+def test_the_image_is_built_only_on_request_and_never_pruned():
+    assert workflow_faults(BUILD_IMAGE.read_text()) == []
 
-    return subprocess.run(
-        ["bash", str(infra / "up.sh")],
-        cwd=str(tmp_path),
-        env={
-            "PATH": f"{stub_dir}{os.pathsep}{os.environ['PATH']}",
-            "HOME": str(tmp_path),
-            "RUNPOD_API_KEY": "test-key",
-            "RUNPOD_NETWORK_VOLUME_ID": "test-volume",
-            "RUNPOD_SSH_KEY": str(tmp_path / "id_test"),
-            "RUNPOD_POD_NAME": "stub-pod-name",
-        },
-        capture_output=True,
-        text=True,
-        timeout=60,
-        start_new_session=True,
+
+@pytest.mark.spec_exempt("structural: twin of the image workflow's trigger check")
+def test_the_workflow_check_catches_a_push_trigger_a_prune_and_a_moving_tag():
+    pruning = (
+        "on:\n  workflow_dispatch:\n  push:\n    branches: [main]\n\njobs:\n  b:\n    steps:\n"
+        "      - uses: actions/checkout@v4\n"
+        "      - uses: actions/delete-package-versions@v5\n"
     )
+    assert workflow_faults(pruning) == [
+        "a manual request its only trigger",
+        "a required tag",
+        "latest refused",
+        "no registry version deleted",
+        "actions/checkout@v4 pinned by commit SHA",
+        "actions/delete-package-versions@v5 pinned by commit SHA",
+    ]
 
 
-@pytest.mark.skipif(shutil.which("bash") is None, reason="bash not available")
-@pytest.mark.spec("pod.up-warns-when-the-id-never-arrives")
-def test_up_warns_a_pod_may_exist_when_the_create_call_itself_fails(tmp_path: Path):
-    # The transport half of the same window, and the one the -m 30 timeout made likelier:
-    # under `set -euo pipefail` a curl that exits non-zero (28 timeout, 56 reset) fails the
-    # ASSIGNMENT, so the shell leaves at that line — in front of the `[ -z "$pod_id" ]`
-    # branch that carries the warning and in front of every trap. The provider may already
-    # have created the pod. Asserted by RUNNING the script against a stub curl that exits
-    # 28, because the warning's presence in the source proves only that it was written.
-    proc = _run_up_with_stub_curl(tmp_path, "#!/bin/sh\nexit 28\n")
+def record_faults(config: Mapping[str, object], derived: Mapping[str, str]) -> list[str]:
+    """Return each path whose recorded SHA-256 departs from the tree's, sorted.
 
-    assert proc.returncode != 0, "a failed create must not report success"
-    assert "may have been created" in proc.stderr, (
-        "a create call that fails in transport must warn that a pod may be live and "
-        f"billing; got: {proc.stderr!r}"
-    )
-    assert "stub-pod-name" in proc.stderr, (
-        "the warning must name the pod so the console can be checked"
-    )
-
-
-@pytest.mark.skipif(shutil.which("bash") is None, reason="bash not available")
-@pytest.mark.spec("pod.up-warns-when-the-id-never-arrives")
-def test_up_warns_a_pod_may_exist_when_the_create_call_is_interrupted(tmp_path: Path):
-    # The signal half. Ctrl-C during the create call is the same exposure with a person
-    # attached: the request may have reached the provider, and the teardown traps are not
-    # installed until the id is known. The stub signals its own process group, which
-    # start_new_session has made the script's, exactly as a terminal signals a foreground job.
-    proc = _run_up_with_stub_curl(tmp_path, "#!/bin/sh\nkill -INT 0\nsleep 5\n")
-
-    assert proc.returncode != 0, "an interrupted create must not report success"
-    assert "may have been created" in proc.stderr, (
-        "an interrupt during the create call must warn that a pod may be live and "
-        f"billing; got: {proc.stderr!r}"
-    )
-
-
-@pytest.mark.spec("pod.up-http-port-opt-in")
-def test_up_requests_only_the_tunnelled_port_by_default():
-    # The provider serves an HTTP-exposed port at a PUBLIC, UNAUTHENTICATED URL, and
-    # ComfyUI has no auth of its own. Publishing it must be a decision, not a default —
-    # the shipped `pod.up-enables-ssh` scenario says "without exposing a public port".
-    assert _up_payload_ports() == ["22/tcp"]
-
-
-@pytest.mark.spec("pod.up-http-port-opt-in")
-def test_up_publishes_the_http_port_only_when_explicitly_opted_in():
-    ports = _up_payload_ports(RUNPOD_EXPOSE_HTTP="1")
-
-    assert "22/tcp" in ports, "opting into HTTP must not cost the tunnel"
-    assert any("8188" in p for p in ports)
-
-
-@pytest.mark.spec("pod.up-bounded-readiness")
-def test_up_bounds_readiness_with_a_longer_deadline_for_the_fallback():
-    # A pod that reaches RUNNING without becoming reachable bills indefinitely for nothing.
-    # The fallback gets longer because ComfyUI must also finish starting behind the proxy.
-    text = UP.read_text()
-    tunnel_match = re.search(r"READY_DEADLINE_TUNNEL_SECS:-(\d+)", text)
-    proxy_match = re.search(r"READY_DEADLINE_PROXY_SECS:-(\d+)", text)
-    assert tunnel_match, "up.sh declares no tunnelled readiness deadline"
-    assert proxy_match, "up.sh declares no fallback readiness deadline"
-
-    tunnel, proxy = int(tunnel_match.group(1)), int(proxy_match.group(1))
-
-    assert tunnel > 0 and proxy > 0
-    assert proxy > tunnel, f"fallback deadline {proxy}s must exceed tunnelled {tunnel}s"
-
-
-@pytest.mark.spec("pod.up-tears-down-on-timeout")
-def test_up_tears_the_pod_down_when_readiness_expires():
-    # Teardown reuses down.sh so there is ONE code path that stops billing. A hand-rolled
-    # DELETE here would be a second one to keep correct.
-    text = UP.read_text()
-
-    # Must be an INVOCATION, not a mention. up.sh already prints "tear down with:
-    # infra/down.sh" as advice, and advice does not stop billing.
-    #
-    # The invocation lives in an EXIT trap rather than only in the timeout branch: the
-    # deadline is one way to exit with a live pod, but a failed curl under `set -e`, a
-    # parse error or a Ctrl-C are others, and all of them bill. One trap covers the class.
-    trap_line = next(
-        (ln for ln in text.splitlines() if ln.startswith("trap ") and "EXIT" in ln), ""
-    )
-    assert trap_line, "up.sh installs no EXIT trap, so an abnormal exit leaves a pod billing"
-    assert "down.sh" in trap_line, "the EXIT trap must execute down.sh"
-    assert 'rc" -eq 0' in trap_line, "the trap must not tear down a pod on a successful exit"
-    assert "trap - EXIT" in text, "the success path must hand the pod over, not tear it down"
-    assert "DELETE" not in text, "up.sh must not hand-roll its own delete"
-
-
-@pytest.mark.spec("pod.up-polls-the-path-in-use")
-def test_up_accepts_proxy_readiness_when_the_http_port_is_published():
-    # Measured 2026-09-09/10: EU-RO-1 is capacity-starved, so pods reach RUNNING with no
-    # publicIp and no portMappings — the tunnel can never be reached. The proxy route needs
-    # no public IP and works exactly then, so waiting LONGER for an address that will never
-    # arrive tears down a pod that was reachable all along. Readiness must test the route in
-    # use, not a different one.
-    # Asserted against the probe's own CODE line, not the file. An earlier version of this
-    # test checked `"system_stats" in text` and sliced the file between two string anchors;
-    # both were satisfied by the pre-fix script — the slice caught an unrelated EXPOSE_HTTP
-    # check in the success branch, and the surviving assertion matched the explanatory
-    # COMMENT above the probe. Deleting the whole fix but keeping its comment left it green.
-    code = [ln for ln in UP.read_text().splitlines() if not ln.strip().startswith("#")]
-
-    probes = [ln for ln in code if "system_stats" in ln]
-    assert probes, "up.sh does not probe the render server on the published HTTP route"
-    probe = probes[0]
-
-    assert "PROXY_URL" in probe, "the probe must target the published proxy route"
-    assert "EXPOSE_HTTP" in probe, "the proxy probe must be conditional on opting in"
-    assert any("proxy_ready" in ln and "=" in ln for ln in code), (
-        "a pod reachable only over the proxy must be recorded as ready, not torn down"
-    )
-
-
-# --- build-image publishes what the pod pulls (change 0004, D9) --------------
-
-
-@pytest.mark.spec("pod.image-prune-is-default-branch-only")
-def test_the_registry_prune_never_runs_off_the_default_branch():
-    # Measured 2026-09-10. `latest` is tagged only on the default branch, but the prune
-    # step ran on EVERY push — so running build-image against a feature branch pushed a
-    # sha- tag and then deleted every older version, INCLUDING the only `latest` that
-    # existed. `up.sh` defaults to :latest, so three pods failed with
-    # IMAGE_NOT_FOUND/manifest unknown against a registry holding one sha- tag.
-    #
-    # A green workflow run is not the check: that run WAS green. The destructive step has
-    # to be gated on the branch that also produces the tag it is allowed to supersede.
-    text = BUILD_IMAGE.read_text()
-    prune = [ln for ln in text.splitlines() if "delete-package-versions" in ln]
-    assert prune, "build-image no longer prunes; delete this guard with the step"
-
-    block = text.split("delete-package-versions", 1)[1]
-    guarded = "default_branch" in text.split("delete-package-versions")[0].rsplit("- name:", 1)[-1]
-    assert guarded, (
-        "the prune step must be gated on the default branch — off it, the run deletes "
-        "the `latest` it cannot republish"
-    )
-    assert "min-versions-to-keep" in block
-
-
-@pytest.mark.spec("pod.image-branch-runs-keep-latest")
-def test_the_image_the_pod_pulls_by_default_is_the_one_the_workflow_tags():
-    # up.sh's default image reference and the workflow's raw tag are one string. If the
-    # workflow stops emitting `latest`, every pod created without RUNPOD_IMAGE fails to
-    # pull — which is exactly what happened, and nothing in the suite noticed.
-    workflow = BUILD_IMAGE.read_text()
-    up = UP.read_text()
-
-    assert "value=latest" in workflow, "build-image no longer publishes a `latest` tag"
-    assert ":latest}" in up or ':latest"' in up or ":latest" in up, (
-        "up.sh no longer defaults to :latest — retire this pairing deliberately"
-    )
-
-
-# --- the readiness loop sees a dead container (change 0004, D10) -------------
-
-
-def _up_readiness_fields(pod_json: str) -> list[str]:
-    """Run up.sh's readiness parser over one provider response; return its fields.
-
-    Executed rather than pattern-matched, like ``_up_payload_ports`` — this asserts what
-    the loop actually reads out of the response, not what its source appears to say.
+    e.g. {"files": {"Dockerfile": "<old>"}} beside a changed `Dockerfile` -> ["Dockerfile"]
     """
-    match = re.search(r"python3 -c '\n(import sys, json\n.*?)\n'", UP.read_text(), re.S)
-    assert match, "up.sh no longer contains the inline readiness parser"
-    proc = subprocess.run(
-        [sys.executable, "-c", match.group(1)],
-        input=pod_json,
-        env={"PATH": os.environ["PATH"]},
-        capture_output=True,
-        text=True,
-        check=True,
+    files = config.get("files")
+    if not isinstance(files, dict):
+        return ["config/image.json records no files"]
+    names = sorted({str(name) for name in files} | set(derived))
+    return [name for name in names if files.get(name) != derived.get(name)]
+
+
+@pytest.mark.spec("pod.image-record-matches-the-tree")
+def test_the_build_record_agrees_with_the_tree():
+    derived = record()
+    assert {
+        "Dockerfile",
+        "constraints.txt",
+        "synthetic_portraits/pod_start.py",
+        "synthetic_portraits/provision.py",
+        "config/models.json",
+    } <= set(derived)
+    assert record_faults(json.loads(IMAGE_CONFIG.read_text()), derived) == []
+
+
+@pytest.mark.spec_exempt("structural: twin of test_the_build_record_agrees_with_the_tree")
+def test_the_record_check_catches_a_file_edited_after_the_record(tmp_path: Path):
+    (tmp_path / "Dockerfile").write_text("FROM x\nCOPY a.py /a.py\n")
+    (tmp_path / "a.py").write_text("one\n")
+    config: dict[str, object] = {"files": record(tmp_path)}
+    assert record_faults(config, record(tmp_path)) == []
+    (tmp_path / "a.py").write_text("two\n")
+    assert record_faults(config, record(tmp_path)) == ["a.py"]
+    (tmp_path / "Dockerfile").write_text("FROM x\nCOPY a.py /a.py\nCOPY b.py /b.py\n")
+    (tmp_path / "b.py").write_text("")
+    assert record_faults(config, record(tmp_path)) == ["Dockerfile", "a.py", "b.py"]
+    assert record_faults({}, record(tmp_path)) == ["config/image.json records no files"]
+
+
+@pytest.mark.spec("pod.image-record-matches-the-tree")
+@pytest.mark.parametrize(
+    "line",
+    [
+        "COPY --chmod=755 a.py /a.py",
+        "COPY a.py b.py /opt/",
+        "ADD a.py /a.py",
+        "add a.py /a.py",
+        "ADD https://example.org/a.py /a.py",
+    ],
+)
+def test_the_record_refuses_a_copy_it_cannot_read(line: str):
+    with pytest.raises(ValueError, match=re.escape(repr(line))):
+        copied(f"FROM x\nCOPY ok.py /ok.py\n{line}\n")
+
+
+@pytest.mark.spec("pod.image-record-matches-the-tree")
+def test_the_record_reads_past_a_checksummed_url_and_an_image_copy():
+    dockerfile = (
+        "FROM x\nCOPY a.py /a.py\n"
+        f"ADD --checksum=sha256:{'0' * 64} \\\n    https://example.org/b /b\n"
+        "COPY --from=builder /c /c\n"
     )
-    return proc.stdout.split()
+    assert copied(dockerfile) == ["a.py"]
 
 
-@pytest.mark.spec("pod.up-fails-fast-on-a-dead-container")
-def test_the_readiness_parser_reports_the_container_status():
-    # Measured 2026-09-10: three pods whose image could not be pulled sat at EXITED within
-    # seconds, and up.sh waited out its FULL deadline on each — it reads only publicIp and
-    # portMappings, so a container that died at second 5 looks exactly like one still
-    # starting. The status is in the same response the loop already parses.
-    #
-    # `status` is the tolerated fallback spelling, kept because it costs one `or` and the
-    # documented field is asserted by its own test below.
-    fields = _up_readiness_fields('{"publicIp": null, "portMappings": null, "status": "EXITED"}')
-
-    assert "EXITED" in fields, "the readiness parser discards the container status"
+@pytest.mark.spec("pod.image-record-matches-the-tree")
+def test_the_record_sees_a_copy_after_a_comment_ending_in_a_backslash():
+    # Docker continues no comment, so the `COPY` below it is an instruction of its own.
+    dockerfile = "FROM x\n# copy the helper \\\nCOPY b.py /b.py\nCOPY a.py /a.py\n"
+    assert copied(dockerfile) == ["b.py", "a.py"]
 
 
-@pytest.mark.spec("pod.up-fails-fast-on-a-dead-container")
-def test_the_readiness_parser_reads_the_status_field_the_provider_documents():
-    # The field is `desiredStatus`, not `status`. RunPod's published OpenAPI document for
-    # https://rest.runpod.io/v1 — the exact server this script calls — defines
-    # components.schemas.Pod with 34 properties, among them `desiredStatus`
-    # (enum RUNNING|EXITED|TERMINATED, "the current expected status of a Pod"). There is no
-    # `status` property at all. A parser reading `status` therefore never sees a dead
-    # container in production, and fails open forever — the check exists but never fires.
-    fields = _up_readiness_fields(
-        '{"id": "abc", "desiredStatus": "EXITED", "publicIp": null, "portMappings": null}'
+def context_faults(dockerignore: str | None, sources: list[str]) -> list[str]:
+    """Return how `.dockerignore` misses admitting the copied files and nothing else.
+
+    A build sends its whole context to the builder, `.env` and `.gpunit/`'s keys with it,
+    unless excluded (security S2). e.g. None -> ["a .dockerignore"]
+    """
+    if dockerignore is None:
+        return ["a .dockerignore"]
+    patterns = [line.strip() for line in dockerignore.splitlines()]
+    patterns = [line for line in patterns if line and not line.startswith("#")]
+    expected = ["*", *(f"!{source}" for source in sources)]
+    faults = [f"not {line}" for line in patterns if line not in expected]
+    faults += [line for line in expected if line not in patterns]
+    if "*" in patterns and patterns[0] != "*":
+        # A later pattern wins, so the exclusion must come before every admission.
+        faults.append("* first")
+    return faults
+
+
+@pytest.mark.spec_exempt("structural: the build context admits only what the image copies (S2)")
+def test_the_build_context_admits_only_the_files_the_image_copies():
+    dockerignore = REPO_ROOT / ".dockerignore"
+    text = dockerignore.read_text() if dockerignore.is_file() else None
+    assert context_faults(text, copied(DOCKERFILE.read_text())) == []
+
+
+@pytest.mark.spec_exempt("structural: twin of the build context check")
+def test_the_context_check_catches_no_file_a_secret_admitted_and_a_copy_left_out():
+    assert context_faults(None, ["a.py"]) == ["a .dockerignore"]
+    assert context_faults("# the copies\n*\n!a.py\n!.env\n", ["a.py", "b.py"]) == [
+        "not !.env",
+        "!b.py",
+    ]
+    assert context_faults("!a.py\n*\n", ["a.py"]) == ["* first"]
+
+
+def unprinted_record(workflow: str) -> list[str]:
+    """Return what the workflow's summary lacks of the digest and the build record."""
+    faults = []
+    if not re.search(r"\$\{\{ steps\.build\.outputs\.digest \}\}", workflow):
+        faults.append("the digest")
+    # The record is written to a file before the build, so a `COPY` the tool refuses stops
+    # the run before an image is pushed under the tag, and that file reaches the summary.
+    computed = re.search(r'python3 tools/image_record\.py\n(?:.*\n)*?\s*\} > "(\S+)"\n', workflow)
+    if not computed or f'cat "{computed[1]}" >> "$GITHUB_STEP_SUMMARY"' not in workflow:
+        faults.append("the build record")
+    checkout = workflow.find("actions/checkout@")
+    if checkout < 0 or (computed and checkout > computed.start()):
+        faults.append("its own checkout first")
+    build = workflow.find("id: build")
+    if not computed or build < 0 or computed.start() > build:
+        faults.append("the record before the build")
+    return faults
+
+
+@pytest.mark.spec("pod.image-workflow-prints-the-record")
+def test_the_workflow_prints_the_digest_and_the_build_record():
+    assert unprinted_record(BUILD_IMAGE.read_text()) == []
+
+
+@pytest.mark.spec_exempt("structural: twin of the workflow's record check")
+def test_the_record_print_check_catches_a_summary_without_the_record():
+    assert unprinted_record("steps:\n  - run: echo hi\n") == [
+        "the digest",
+        "the build record",
+        "its own checkout first",
+        "the record before the build",
+    ]
+
+
+@pytest.mark.spec_exempt("structural: twin of the workflow's record check")
+def test_the_record_print_check_catches_a_record_computed_after_the_push():
+    late = (
+        "steps:\n  - uses: actions/checkout@x\n  - id: build\n"
+        "  - run: echo ${{ steps.build.outputs.digest }}\n"
+        '  - run: |\n      {\n        python3 tools/image_record.py\n      } > "r.md"\n'
+        '  - run: cat "r.md" >> "$GITHUB_STEP_SUMMARY"\n'
     )
-
-    assert "EXITED" in fields, (
-        "the readiness parser reads a status field the provider's Pod schema does not have"
-    )
-
-
-@pytest.mark.spec("pod.up-fails-fast-on-a-dead-container")
-def test_a_missing_status_field_is_not_treated_as_a_dead_container():
-    # Fail-open on purpose. The field name is now the one the provider's published Pod
-    # schema carries (`desiredStatus`), but no live pod has been observed through this
-    # loop and a parse test cannot prove what the provider returns. So an absent status
-    # must read as "keep waiting", exactly as before, and only an explicit terminal state
-    # aborts. That way shipping this unverified cannot regress a pod that would otherwise
-    # have come up.
-    fields = _up_readiness_fields('{"publicIp": null, "portMappings": null}')
-
-    assert "EXITED" not in fields and "TERMINATED" not in fields
-
-
-@pytest.mark.spec("pod.up-fails-fast-on-a-dead-container")
-def test_up_aborts_on_a_terminal_container_status():
-    # Aborting means exit under `set -e`, which is an exit, which is the EXIT trap — so
-    # the dead pod is torn down rather than left billing out the rest of the deadline.
-    code = [ln for ln in UP.read_text().splitlines() if not ln.strip().startswith("#")]
-    text = "\n".join(code)
-
-    assert "EXITED" in text and "TERMINATED" in text, (
-        "up.sh does not recognise a terminal container status"
-    )
-    assert "DELETE" not in text, "up.sh must still not hand-roll its own delete"
+    assert unprinted_record(late) == ["the record before the build"]
 
 
 # --- check_face.py runs as documented (change 0004, D10) ---------------------

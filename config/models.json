@@ -1,0 +1,55 @@
+{
+  "pinned": "2026-08-09",
+  "entries": [
+    {
+      "dest": "checkpoints/RealVisXL_V5.0_fp16.safetensors",
+      "source": "https://huggingface.co/SG161222/RealVisXL_V5.0/resolve/ac93e0dda1f6d448cae19bbfab8c5e720a5e48bc/RealVisXL_V5.0_fp16.safetensors",
+      "sha256": "6a35a7855770ae9820a3c931d4964c3817b6d9e3c6f9c4dabb5b3a94e5643b80"
+    },
+    {
+      "dest": "instantid/ip-adapter.bin",
+      "source": "https://huggingface.co/InstantX/InstantID/resolve/57b32dfee076092ad2930c71fd6d439c2c3b1820/ip-adapter.bin",
+      "sha256": "02b3618e36d803784166660520098089a81388e61a93ef8002aa79a5b1c546e1"
+    },
+    {
+      "dest": "controlnet/diffusion_pytorch_model.safetensors",
+      "source": "https://huggingface.co/InstantX/InstantID/resolve/57b32dfee076092ad2930c71fd6d439c2c3b1820/ControlNetModel/diffusion_pytorch_model.safetensors",
+      "sha256": "c8127be9f174101ebdafee9964d856b49b634435cf6daa396d3f593cf0bbbb05"
+    },
+    {
+      "dest": "controlnet/config.json",
+      "source": "https://huggingface.co/InstantX/InstantID/resolve/57b32dfee076092ad2930c71fd6d439c2c3b1820/ControlNetModel/config.json",
+      "sha256": "2480c42f363d712faae8d0e17cb850a5d1e4cafc232fbd022b1d43eee45234eb"
+    },
+    {
+      "dest": "insightface/models/antelopev2/1k3d68.onnx",
+      "source": "https://huggingface.co/MonsterMMORPG/InstantID_Models/resolve/397cafa6d8310e96e302e96528c20a4c92a884f2/models/antelopev2/1k3d68.onnx",
+      "sha256": "df5c06b8a0c12e422b2ed8947b8869faa4105387f199c477af038aa01f9a45cc"
+    },
+    {
+      "dest": "insightface/models/antelopev2/2d106det.onnx",
+      "source": "https://huggingface.co/MonsterMMORPG/InstantID_Models/resolve/397cafa6d8310e96e302e96528c20a4c92a884f2/models/antelopev2/2d106det.onnx",
+      "sha256": "f001b856447c413801ef5c42091ed0cd516fcd21f2d6b79635b1e733a7109dbf"
+    },
+    {
+      "dest": "insightface/models/antelopev2/genderage.onnx",
+      "source": "https://huggingface.co/MonsterMMORPG/InstantID_Models/resolve/397cafa6d8310e96e302e96528c20a4c92a884f2/models/antelopev2/genderage.onnx",
+      "sha256": "4fde69b1c810857b88c64a335084f1c3fe8f01246c9a191b48c7bb756d6652fb"
+    },
+    {
+      "dest": "insightface/models/antelopev2/glintr100.onnx",
+      "source": "https://huggingface.co/MonsterMMORPG/InstantID_Models/resolve/397cafa6d8310e96e302e96528c20a4c92a884f2/models/antelopev2/glintr100.onnx",
+      "sha256": "4ab1d6435d639628a6f3e5008dd4f929edf4c4124b1a7169e1048f9fef534cdf"
+    },
+    {
+      "dest": "insightface/models/antelopev2/scrfd_10g_bnkps.onnx",
+      "source": "https://huggingface.co/MonsterMMORPG/InstantID_Models/resolve/397cafa6d8310e96e302e96528c20a4c92a884f2/models/antelopev2/scrfd_10g_bnkps.onnx",
+      "sha256": "5838f7fe053675b1c7a08b633df49e7af5495cee0493c7dcf6697200b85b5b91"
+    },
+    {
+      "dest": "ultralytics/bbox/face_yolov8m.pt",
+      "source": "https://huggingface.co/Bingsu/adetailer/resolve/53cc19de382014514d9d4038601d261a7faa9b7b/face_yolov8m.pt",
+      "sha256": "717923c19b3f4bbf5250b728f1fa6b2cb72a33aed1d236ea9caf0e21ad943e5f"
+    }
+  ]
+}

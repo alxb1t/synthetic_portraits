@@ -1,11 +1,11 @@
-# Secrets & local config — never commit (the RunPod API key and volume ids).
+# Secrets & local config — never commit (the RunPod API key).
 .env
+
+# gpunit's session record and per-session SSH keys
+.gpunit/
 
 # Rendered scratch output (the curated demo set lives in examples/)
 outputs/
-
-# Per-run pod state written by infra/up.sh, read by infra/down.sh
-infra/.pod_id
 
 # MinionsFactory's run artefacts: findings, frozen diffs, the backlog. All local.
 .minions/

@@ -12,6 +12,7 @@ so the state machine and its error paths are unit-testable against the fake.
 
 from __future__ import annotations
 
+import http.client
 import json
 import time
 import uuid
@@ -28,6 +29,7 @@ __all__ = [
     "ComfyTimeoutError",
     "ComfyTransport",
     "FakeComfyClient",
+    "ReportingTransport",
     "await_outputs",
 ]
 
@@ -71,6 +73,15 @@ class ComfyTransport(Protocol):
         ...
 
 
+@runtime_checkable
+class ReportingTransport(ComfyTransport, Protocol):
+    """A transport that also reports on its server: what ``--pod`` waits on before a render."""
+
+    def system_stats(self) -> dict[str, Any]:
+        """Fetch the server's report on itself; raise :class:`ComfyError` if it does not answer."""
+        ...
+
+
 def await_outputs(
     transport: ComfyTransport,
     prompt_id: str,
@@ -106,17 +117,9 @@ def _describe_error(status: dict[str, Any], prompt_id: str) -> str:
 
 # --- Real implementation (stdlib urllib) ------------------------------------
 
-# Cloudflare, which fronts a pod when no tunnelled route exists, answers the stdlib's
-# default `Python-urllib/3.x` with error 1010 — a user-agent block. The request never
-# reaches ComfyUI, so a failure that is purely about client identification surfaces as an
-# unexplained transport error (measured 2026-09-09: `curl` got 200 where this client got
-# 1010). A browser-like value is what gets past that filter; that is the property being
-# relied on, and it is recorded here rather than left as a bare string. Setting it adds no
-# dependency — the runtime stays stdlib-only. See change 0004, design D4.
-USER_AGENT = (
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
-)
+# Names this client, so the render server's log says who asked for each render; the
+# stdlib's default `Python-urllib/3.x` names only the library.
+USER_AGENT = "synthetic-portraits (+https://github.com/alxb1t/synthetic_portraits)"
 
 
 class ComfyClient:
@@ -141,7 +144,7 @@ class ComfyClient:
         """Build a request carrying :data:`USER_AGENT`, merged over any caller headers.
 
         Every call goes through here, so no path can be added later that silently keeps
-        the standard library's default user agent (design D4).
+        the standard library's default user agent.
         """
         return Request(
             url,
@@ -187,6 +190,10 @@ class ComfyClient:
         req = self._request(f"{self.base_url}/view?{query}")
         return self._bytes(req)
 
+    def system_stats(self) -> dict[str, Any]:
+        """Fetch ``/system_stats``, the server's report on itself; raise if it does not answer."""
+        return self._json(self._request(f"{self.base_url}/system_stats"))
+
     # -- low-level request helpers --
 
     def _bytes(self, req: Request) -> bytes:
@@ -197,6 +204,9 @@ class ComfyClient:
             raise ComfyExecutionError(_read_http_error(exc)) from exc
         except URLError as exc:
             raise ComfyError(f"cannot reach ComfyUI at {self.base_url}: {exc.reason}") from exc
+        # urllib wraps only a failed connect; a reset or a cut after it comes out raw.
+        except (OSError, http.client.HTTPException) as exc:
+            raise ComfyError(f"lost ComfyUI at {self.base_url}: {exc!r}") from exc
 
     def _json(self, req: Request) -> dict[str, Any]:
         raw = self._bytes(req)
@@ -265,22 +275,33 @@ class FakeComfyClient:
         view_bytes: bytes = _ONE_PX_PNG,
         queue_error: str | None = None,
         execution_error: str | None = None,
+        silent_stats: int = 0,
     ) -> None:
         """Script the fake server: how many polls stay pending, what outputs to return.
 
         ``queue_error`` rejects at queue time and ``execution_error`` fails during
         execution, so both error paths of :func:`await_outputs` are reachable offline.
+        ``silent_stats`` is how many ``system_stats`` calls fail before the server answers.
         """
         self.polls_until_done = polls_until_done
         self.outputs = _DEFAULT_OUTPUTS if outputs is None else outputs
         self.view_bytes = view_bytes
         self.queue_error = queue_error
         self.execution_error = execution_error
+        self.silent_stats = silent_stats
 
         self.uploads: list[tuple[str, bytes]] = []
         self.queued_workflows: list[dict[str, Any]] = []
         self.requested_views: list[tuple[str, str, str]] = []
         self.poll_count = 0
+        self.stats_count = 0
+
+    def system_stats(self) -> dict[str, Any]:
+        """Fail as a server not yet up would, ``silent_stats`` times; then report."""
+        self.stats_count += 1
+        if self.stats_count <= self.silent_stats:
+            raise ComfyError("cannot reach ComfyUI: connection refused")
+        return {"system": {"comfyui_version": "fake"}, "devices": []}
 
     def upload_image(self, filename: str, data: bytes) -> str:
         """Record the upload and echo the filename back, as ComfyUI would."""

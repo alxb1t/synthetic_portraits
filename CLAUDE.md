@@ -21,11 +21,11 @@ package is **stdlib-only**, and **no test reaches a GPU or the network**.
 The `Makefile` declares it and notes each command; CI runs `make gate` too.
 
 **`docker build --check` is deliberately *not* in the gate** — it needs a running Docker daemon, and the
-gate must run on any checkout, offline. `build-image.yml` does a real image build on every push to
-`main`, which subsumes it; run it by hand for image-as-code work. `bash -n` needs no entry either:
-`tests/test_infra.py` already runs it over every shell script, so the suite carries that axis.
+gate must run on any checkout, offline. `build-image.yml` does a real image build when dispatched with a
+tag, which subsumes it; dispatch it for image-as-code work. `bash -n` needs no entry either: no
+shell script is left — the pod boots in Python — and `tests/test_infra.py` holds the tree to that.
 
-**External effects are faked at four seams**, which is what keeps the suite offline:
+**External effects are faked at these seams**, which is what keeps the suite offline:
 
 - **`ComfyTransport`** (`transport.py`) — a Protocol. `ComfyClient` is real (stdlib `urllib`);
   `FakeComfyClient` replays `/prompt` → `/history` → `/view` in memory, including both error paths.
@@ -33,6 +33,8 @@ gate must run on any checkout, offline. `build-image.yml` does a real image buil
   count, so the regenerate loop is testable.
 - **`workflows/*.json`** — golden fixtures, locked to real node ids exported from a live GPU run.
 - **`await_outputs(..., sleep=)`** — the poll clock is injected, so timeout paths cost no wall time.
+- **`open_session` and `connect`** (`cli.main`) — the gpunit session and the client behind its tunnel.
+  `gpu.open_session` is real; tests pass a fake session and a `FakeComfyClient`, so `--pod` opens no pod.
 
 ---
 
@@ -41,9 +43,13 @@ gate must run on any checkout, offline. `build-image.yml` does a real image buil
 The active change's **`design.md`** is authoritative, with this file behind it — read it. It *is* the
 decision record: the reasoning and the measurement behind each decision live there and nowhere else.
 
-- **Runtime is stdlib-only**, with **one sanctioned exception**: face detection (`insightface` + CPU
-  `onnxruntime` / antelopev2), shipped as the optional `faces` extra and reached **only** through the
-  injected `FaceDetector` facade — real at the CLI, faked in tests. `pytest`/`ruff`/`ty` stay dev-only.
+- **Runtime is stdlib-only**, with **sanctioned exceptions**, each reached through its own seam:
+  - face detection (`insightface` + CPU `onnxruntime` / antelopev2), shipped as the optional `faces`
+    extra and reached **only** through the injected `FaceDetector` facade — real at the CLI, faked in tests;
+  - **`gpunit`**, `--pod`'s GPU session, pinned by its tag in `dependencies`, stdlib-only itself, and
+    imported only inside `synthetic_portraits/gpu.py` — its `open_session` injected, faked in tests.
+
+  `pytest`/`ruff`/`ty` stay dev-only.
 - **Test-first (red → green)** for every unit of logic this project owns. Tests are named as behavioural
   sentences and double as documentation — which is why `tests/**` is exempt from the docstring selectors.
 - **Conventional Commits, one phase = one commit**, staged **by name** — never `git add -A`, because
@@ -88,8 +94,10 @@ moving version can never turn CI red. The binding authority for the code is the 
 
 - **`synthetic_portraits/`** — the runtime package: `transport` (the ComfyUI seam), `workflow` (trace-based
   prompt injection), `models` (name→model registry), `pipeline` (render + face gate + regenerate loop),
-  `faces`, `batch`, `cli`. **`generate.py`** is the entry point. **`tests/`** — the suite.
-- **`infra/`** — pod up/down/boot scripts. **`workflows/`** — the ComfyUI API-format graphs.
+  `faces`, `batch`, `cli`, `gpu` (the gpunit seam), and the pod's own `pod_start` and `provision`.
+  **`generate.py`** is the entry point. **`tests/`** — the suite.
+- **`gpunit.toml`** — the GPU session's spec. **`config/`** — the pod's model manifest and the image's
+  build record. **`workflows/`** — the ComfyUI API-format graphs.
   **`scripts/`** — `check_face.py`, the offline detectability assertion. **`examples/`** — the demo set.
 - **`openspec/`** — the living specs and the changes. **`.github/`** — CI and the image build.
 - **`.minions/`** — MinionsFactory's run artefacts, gitignored whole.
@@ -106,7 +114,9 @@ moving version can never turn CI red. The binding authority for the code is the 
 - **Never weaken the gate to pass.** A deleted or skipped test, a blanket suppression, a loosened config —
   each is a *plan* problem, not a coding shortcut. **Halt and say so.**
 - **State lives on disk.** Reconstruct "where are we" from `tasks.md` + git, never from memory.
-- **Some work spends real money.** Pods bill per second. Announce, wait for an explicit human "go", tear
-  down afterwards, and never bring up a paid pod on your own initiative.
+- **Some work spends real money.** Pods bill per second. A pod is opened only by `generate.py --pod`,
+  through gpunit; its ceiling is **45 minutes**, about **$0.30** a session. Announce, wait for an explicit
+  human "go", never open a paid pod on your own initiative, and afterwards confirm through the RunPod MCP
+  that no `gpunit-synthetic-portraits` pod is left.
 - **Every image is of a person who does not exist**, is disclosed as AI-generated, and the pipeline is
   never pointed at a real individual's likeness.
