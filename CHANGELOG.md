@@ -11,6 +11,8 @@ files and the annotated tag are one line — they agree, or the release halts.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-11
+
 ### Added
 
 - **`gpunit.toml` declares the render session's GPU**: the pin, the cards, the floors, the 45-minute

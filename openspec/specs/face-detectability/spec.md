@@ -114,8 +114,8 @@ the detection library. Staging SHALL be idempotent, and SHALL leave nothing behi
 
 #### Scenario: The host pins and the pod pins are the same pins
 
-- **WHEN** the pins used on a developer host are compared with the ones the pod provisioning
-  script uses
+- **WHEN** the pins used on a developer host are compared with the ones the pod's model manifest
+  records
 - **THEN** the revision and every digest agree, so both environments detect against identical
   model files
 - **Key:** `faces.pins-agree-with-pod`

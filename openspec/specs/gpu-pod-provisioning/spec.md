@@ -7,7 +7,7 @@ every model file verified before it is used and the pod's own identifier never c
 
 ### Requirement: The pod image pins every dependency it installs
 
-The pod image SHALL pin its CUDA and PyTorch base, its render-server extensions, and its Python
+The pod image SHALL pin its base image by digest, its CUDA and PyTorch build, its render-server extensions, and its Python
 dependencies to exact versions, so the same image definition builds the same environment. Face and
 detail dependencies SHALL be installed CPU-only, so they claim no VRAM from the renderer.
 
@@ -43,9 +43,17 @@ detail dependencies SHALL be installed CPU-only, so they claim no VRAM from the 
 #### Scenario: The image starts through the boot script
 
 - **WHEN** the image definition is inspected
-- **THEN** its entry point is the repository's boot script, so a pod cannot start without the
+- **THEN** its entry point is gpunit's boot script, added at the tag `pyproject.toml` pins gpunit at with
+  a checksum, and its command is the repository's start module, so a pod cannot start without the
   provisioning it performs
 - **Key:** `pod.launches-via-start`
+- **Layers:** structural
+
+#### Scenario: The base image is named by digest
+
+- **WHEN** the image definition is inspected
+- **THEN** every image it builds from carries a digest, and every file it adds from a URL carries a checksum
+- **Key:** `pod.pins-base-by-digest`
 - **Layers:** structural
 
 ### Requirement: Model assets are fetched from immutable revisions and verified
@@ -56,21 +64,21 @@ Downloading SHALL be idempotent, so a restarted pod re-fetches nothing it alread
 
 #### Scenario: Downloading is idempotent and covers the whole model set
 
-- **WHEN** the download script runs against a volume that already holds the models
+- **WHEN** the provisioner runs against a volume that already holds the models
 - **THEN** nothing is re-fetched, and every model the pipeline needs is accounted for
 - **Key:** `pod.download-idempotent`
 - **Layers:** structural
 
 #### Scenario: Each model lands in its own target directory
 
-- **WHEN** the download script runs
+- **WHEN** the provisioner runs
 - **THEN** each model is written under the directory its consumer reads, not into a shared heap
 - **Key:** `pod.download-isolates`
 - **Layers:** structural
 
 #### Scenario: Every source is pinned to an immutable revision
 
-- **WHEN** the download script is inspected
+- **WHEN** the model manifest is read
 - **THEN** every remote source is addressed by an immutable commit revision, never by a branch
   or tag that can move
 - **Key:** `pod.download-pins-revisions`
@@ -79,112 +87,9 @@ Downloading SHALL be idempotent, so a restarted pod re-fetches nothing it alread
 #### Scenario: A digest mismatch aborts the download
 
 - **WHEN** a downloaded file's SHA-256 does not match its recorded digest
-- **THEN** the script aborts rather than proceeding, and every file it fetches has a recorded
+- **THEN** the provisioner aborts rather than proceeding, and every file it fetches has a recorded
   digest to check against
 - **Key:** `pod.download-verifies-sha256`
-- **Layers:** structural
-
-### Requirement: The boot script exposes the model volume and an operator login
-
-The boot script SHALL point the render server's model directories at the persistent volume, so
-models survive a pod being destroyed, and SHALL install the operator's public key so the pod is
-reachable without a password.
-
-#### Scenario: The model directories are mapped onto the volume
-
-- **WHEN** the boot script runs
-- **THEN** the render server's model directories resolve onto the persistent volume, including
-  the ones the extensions hard-code
-- **Key:** `pod.start-maps-model-dirs`
-- **Layers:** structural
-
-#### Scenario: The operator's public key is installed
-
-- **WHEN** the boot script runs
-- **THEN** the operator's public key is installed for the pod's login account
-- **Key:** `pod.start-installs-ssh-key`
-- **Layers:** structural
-
-### Requirement: Pods are created and destroyed by script, and the pod identifier is never committed
-
-Pod lifecycle SHALL be scripted against the provider's REST API: bringing one up records its
-identifier locally and enables tunnelled access, and tearing it down deletes it. The recorded
-identifier SHALL be untracked, because a pod that is running is a pod that is billing.
-
-The render server's HTTP port SHALL NOT be published by default. Publishing it makes the render server
-reachable at a provider URL that is public and unauthenticated, so it SHALL happen only when the operator
-asks for it explicitly, and the default SHALL remain tunnelled access alone.
-
-#### Scenario: The lifecycle scripts use the provider's REST API
-
-- **WHEN** the pod scripts are inspected
-- **THEN** they call the provider's REST API rather than a deprecated or unversioned interface
-- **Key:** `pod.uses-rest-api`
-- **Layers:** structural
-
-#### Scenario: Bringing a pod up records its identifier
-
-- **WHEN** the up script runs
-- **THEN** a GPU pod is created and its identifier is written to a local state file the down
-  script reads
-- **Key:** `pod.up-persists-id`
-- **Layers:** structural
-
-#### Scenario: A pod that is up is reachable over a tunnel
-
-- **WHEN** the up script runs
-- **THEN** the pod is created with tunnelled access enabled, so the render server is reached
-  without exposing a public port
-- **Key:** `pod.up-enables-ssh`
-- **Layers:** structural
-
-#### Scenario: The render server's HTTP port is published only on request
-
-- **WHEN** the up script runs without the operator opting in to HTTP exposure
-- **THEN** only the tunnelled access port is requested from the provider, and the render server's HTTP
-  port is not published
-- **Key:** `pod.up-http-port-opt-in`
-- **Layers:** structural
-
-#### Scenario: Tearing down deletes the pod
-
-- **WHEN** the down script runs
-- **THEN** the recorded pod is deleted, so it stops billing
-- **Key:** `pod.down-deletes`
-- **Layers:** structural
-
-#### Scenario: The recorded pod identifier is untracked
-
-- **WHEN** the repository's ignore rules are checked
-- **THEN** the pod state file is ignored, so a live pod's identifier is never committed
-- **Key:** `pod.id-file-untracked`
-- **Layers:** structural
-
-### Requirement: Every shell script is syntax-checked and fails fast
-
-Every shell script in the repository SHALL parse cleanly and SHALL run under strict mode, so a
-typo or an unset variable stops the script rather than provisioning a pod halfway.
-
-#### Scenario: Every script parses cleanly
-
-- **WHEN** each shell script is syntax-checked
-- **THEN** it parses without error
-- **Key:** `pod.scripts-syntax-clean`
-- **Layers:** structural
-
-#### Scenario: Every script runs under strict mode
-
-- **WHEN** each shell script is read
-- **THEN** it sets strict mode, so an error, an unset variable or a failed pipe stops it
-- **Key:** `pod.scripts-strict-mode`
-- **Layers:** structural
-
-#### Scenario: The provisioning file set is present
-
-- **WHEN** the repository is checked out
-- **THEN** the image definition, the constraints file, the boot script, the download script and
-  the pod lifecycle scripts are all present
-- **Key:** `pod.infra-files-present`
 - **Layers:** structural
 
 ### Requirement: The pinned dependency set is mutually satisfiable
@@ -215,110 +120,107 @@ failed image build or, later, by a billing pod that cannot render.
 - **Key:** `pod.constraints-mutually-satisfiable`
 - **Layers:** structural
 
-### Requirement: Pod readiness is bounded and expiry tears the pod down
+### Requirement: The start module exposes the model volume
 
-A pod that reaches a running state without becoming reachable is a pod that bills indefinitely for
-nothing. Waiting for readiness SHALL therefore be bounded by a deadline, and reaching that deadline SHALL
-destroy the pod rather than return control with it still running. The deadline SHALL be shorter when
-waiting only for tunnelled access than when a fallback path is also being given a chance to answer.
+The pod's start module SHALL point the render server's model directories at the persistent volume gpunit names
+as `GPUNIT_VOLUME_PATH`, so models survive a pod being destroyed, and SHALL provision the models there before the
+render server starts.
 
-#### Scenario: Waiting for readiness is bounded by a deadline
+#### Scenario: The model directories are mapped onto the volume
 
-- **WHEN** the up script is inspected
-- **THEN** its wait for a reachable pod is bounded by an explicit deadline, and the deadline allowed when
-  a fallback path is in play is longer than the one for tunnelled access alone
-- **Key:** `pod.up-bounded-readiness`
+- **WHEN** the start module runs
+- **THEN** the render server's model directories resolve onto the persistent volume, including
+  the ones the extensions hard-code
+- **Key:** `pod.start-maps-model-dirs`
+- **Layers:** unit
+
+#### Scenario: A failed provisioning starts no render server
+
+- **WHEN** the provisioner exits non-zero
+- **THEN** the start module exits non-zero without starting the render server, so the boot script stops the pod
+- **Key:** `pod.start-stops-on-a-failed-provision`
+- **Layers:** unit
+
+### Requirement: A batch renders on a pod through one gpunit session
+
+With `--pod`, the command line SHALL open one gpunit session from the repository's `gpunit.toml`, handing gpunit
+the process environment with the repository's `.env` read over it and naming no provider variable itself; SHALL
+print the image the session booted; SHALL wait at most 900 seconds for the render server to answer through the
+session's forwarded port; SHALL render the whole batch it was given; and SHALL close the session on every way
+out. Without `--pod`, `--server` names the render server as before.
+
+#### Scenario: Every exit closes the session
+
+- **WHEN** a render raises, the render server never answers, or a signal arrives inside the session
+- **THEN** the session's block is left and the session closes
+- **Key:** `pod.session-closes-on-every-exit`
+- **Layers:** unit
+
+#### Scenario: The render server is awaited, within a bound
+
+- **WHEN** the session is open
+- **THEN** the render server's report is asked for through the forwarded port before any render
+- **AND** after 900 seconds with no answer, the command refuses and the session closes
+- **Key:** `pod.session-awaits-the-server`
+- **Layers:** unit
+
+#### Scenario: The session's image is printed
+
+- **WHEN** the session opens
+- **THEN** a line `session image: <reference>@<digest>` is printed to stderr, naming the image the session booted
+- **Key:** `pod.session-names-its-image`
+- **Layers:** unit
+
+#### Scenario: The provider's key comes from the environment the command hands gpunit
+
+- **WHEN** `.env` holds the provider's key and the process environment does not
+- **THEN** the session opens with the key, and the repository's code names no provider variable
+- **Key:** `pod.session-reads-env-whole`
+- **Layers:** unit
+
+#### Scenario: The session's spec pins the image and bounds the spend
+
+- **WHEN** `gpunit.toml` is read
+- **THEN** its image is a digest equal to the one `config/image.json` records, its ceiling is no longer than 45
+  minutes, it names a volume, and it asks for at least 24 GB of card memory and CUDA 12.8
+- **Key:** `pod.session-spec-pins`
 - **Layers:** structural
 
-#### Scenario: An unreachable pod is destroyed rather than left billing
+### Requirement: The image is built on request and recorded
 
-- **WHEN** the readiness deadline expires with the pod still unreachable
-- **THEN** the up script destroys the pod before exiting, and reports that it did so
-- **Key:** `pod.up-tears-down-on-timeout`
+The image SHALL be built only on a manual request naming a tag other than `latest`, SHALL never be pruned from
+the registry by the workflow, and SHALL report its digest and the SHA-256 of the build file and of every file the
+build copies. `config/image.json` SHALL record the same, and SHALL agree with the tree.
+
+#### Scenario: Only a request builds, and nothing is pruned
+
+- **WHEN** the image workflow is read
+- **THEN** a manual request is its only trigger, `latest` is refused as a tag, and no step deletes a registry version
+- **Key:** `pod.image-built-on-request`
 - **Layers:** structural
 
-### Requirement: Readiness polls the access path actually in use
+#### Scenario: The build record agrees with the tree
 
-Waiting for a pod to become reachable SHALL test the route the operator will use, not a
-different one. When only tunnelled access is requested, readiness is the provider issuing the
-address and port that tunnel needs. When the render server's HTTP port has been published,
-readiness SHALL also be satisfied by the render server answering on that published route,
-because it needs no address of the tunnel's kind and is reachable exactly when that address is
-never issued.
-
-A deadline that waits longer for a fallback while still testing only the primary route measures
-nothing the extra time can change: it tears down a pod that was, in fact, reachable.
-
-#### Scenario: With the HTTP port published, the render server answering is readiness
-
-- **WHEN** the render server's HTTP port has been published and the provider issues no address
-  for tunnelled access, but the render server answers on the published route
-- **THEN** the pod is reported ready over that route rather than torn down as unreachable
-- **Key:** `pod.up-polls-the-path-in-use`
+- **WHEN** `config/image.json` is read beside the build file
+- **THEN** it holds a SHA-256 for the build file and for every file the build file copies, each equal to the tree's
+- **Key:** `pod.image-record-matches-the-tree`
 - **Layers:** structural
 
-### Requirement: A create call that yields no pod identifier says a pod may exist
+#### Scenario: The workflow prints the record
 
-Creating a pod is the moment billing starts, and the identifier is what makes it stoppable. Between the
-request leaving and an identifier being in hand there is a window no teardown can cover: the provider may
-have created the pod while the client never learns its name for it, so there is nothing to destroy by and
-no recorded identifier for the down script to read.
-
-Every exit from that window — a request that fails in transport, a response carrying no identifier, and an
-interrupt — SHALL therefore warn that a pod may nonetheless exist and name it, so the operator knows to
-check the provider's console. Reporting only that creation "failed" is not sufficient: it reads as
-"nothing was created", and an unattended pod bills until someone looks.
-
-#### Scenario: A create call that yields no identifier warns that a pod may exist
-
-- **WHEN** the up script's create call fails to produce a pod identifier — whether the call itself fails,
-  the response carries no identifier, or the script is interrupted mid-request
-- **THEN** it exits non-zero having warned that a pod may have been created anyway, naming the pod so the
-  provider's console can be checked
-- **Key:** `pod.up-warns-when-the-id-never-arrives`
+- **WHEN** the image workflow is read
+- **THEN** it writes the digest and the build record to its summary, from its own checkout
+- **Key:** `pod.image-workflow-prints-the-record`
 - **Layers:** structural
 
-### Requirement: Readiness aborts when the container is not running
+### Requirement: The pod sends no usage report its libraries can be told not to send
 
-A container that has died is not a container still starting. Waiting for readiness SHALL therefore read
-the container's status out of the response it already fetches, and an explicitly terminal status SHALL end
-the wait immediately, tearing the pod down by the same path the deadline uses rather than billing out the
-rest of the deadline for a container that will never come up.
+The image SHALL carry the telemetry and update-check switches of the libraries it runs, turned off.
 
-The status SHALL be read under the name the provider's published API schema defines. This check SHALL
-fail **open**: any status that is not explicitly terminal — including no status at all — SHALL keep
-waiting exactly as it would without this requirement, so a pod that would have become reachable is never
-destroyed by it.
+#### Scenario: The image turns telemetry off
 
-#### Scenario: A terminal container status ends the wait instead of billing it out
-
-- **WHEN** the readiness response reports the container in a terminal state
-- **THEN** the up script stops waiting and exits non-zero, so the pod is torn down, and it says the
-  container is not running and that the image tag is the usual cause
-- **AND** a response with no status keeps waiting, so the check cannot destroy a pod that would have
-  become reachable
-- **Key:** `pod.up-fails-fast-on-a-dead-container`
-- **Layers:** structural
-
-### Requirement: Publishing the image never deletes the image a pod pulls
-
-The image workflow both publishes tags and prunes old versions from the registry. Pruning SHALL be
-confined to the branch that can also republish what it deletes: off that branch a run deletes a tag it
-cannot restore, and every pod created from the default image reference then fails to pull.
-
-The image reference the up script pulls by default SHALL be a tag that workflow publishes, so the two
-cannot drift apart unnoticed.
-
-#### Scenario: The registry prune runs only on the default branch
-
-- **WHEN** the image workflow runs on any branch other than the default one
-- **THEN** the destructive prune step does not run, so the tag it could not republish survives
-- **Key:** `pod.image-prune-is-default-branch-only`
-- **Layers:** structural
-
-#### Scenario: The pod's default image reference is a tag the workflow publishes
-
-- **WHEN** the image workflow and the up script are read together
-- **THEN** the tag the workflow publishes is the tag the up script pulls when no image is specified
-- **Key:** `pod.image-branch-runs-keep-latest`
+- **WHEN** the image definition is inspected
+- **THEN** its environment turns off onnxruntime's and the Hugging Face hub's telemetry and albumentations' update
+  check, and sets `DO_NOT_TRACK`
+- **Key:** `pod.telemetry-off`
 - **Layers:** structural
