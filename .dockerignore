@@ -1,0 +1,8 @@
+# The build context is the files the Dockerfile copies and nothing else, so `.env` and
+# `.gpunit/`'s session keys never reach a builder (security S2). tests/test_infra.py holds
+# this list equal to what tools/image_record.py reads the Dockerfile to copy.
+*
+!constraints.txt
+!synthetic_portraits/pod_start.py
+!synthetic_portraits/provision.py
+!config/models.json

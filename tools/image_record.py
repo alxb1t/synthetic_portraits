@@ -36,13 +36,14 @@ TAKES_FILES = re.compile(r"^\s*(COPY|ADD)\s", re.I)
 def instructions(dockerfile: str) -> list[str]:
     r"""Return each instruction on one line, its continued lines joined by spaces.
 
-    A comment line inside a continuation is dropped, as Docker drops it.
+    A comment line is dropped wherever it stands, as Docker drops it, so a comment ending
+    in a backslash continues nothing.
     e.g. "RUN a \\\n  b\nCOPY c /c\n" -> ["RUN a b", "COPY c /c"]
     """
     found: list[str] = []
     held: list[str] = []
     for line in dockerfile.splitlines():
-        if held and line.lstrip().startswith("#"):
+        if line.lstrip().startswith("#"):
             continue
         part = line.rstrip()
         continued = part.endswith("\\")

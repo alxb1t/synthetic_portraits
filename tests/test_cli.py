@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import shlex
 import signal
 import subprocess
 import sys
@@ -549,12 +550,16 @@ def test_a_signal_inside_the_session_closes_it_and_exits_128_plus_the_signal(tmp
     assert opener.closed
 
 
+# The remedy runs from the session's root, wherever `generate.py` was started from.
+REMEDY = f"cd {shlex.quote(str(cli.REPOSITORY))} && uv run --env-file .env gpunit down"
+
+
 @pytest.mark.spec("pod.session-closes-on-every-exit")
 def test_a_lost_create_exits_3_naming_the_teardown_that_reads_the_key(tmp_path, capsys):
     rc, _ = _on_pod(tmp_path, _FakeOpener(on_open=gpunit.Lost()), FakeComfyClient())
 
     assert rc == 3
-    assert "uv run --env-file .env gpunit down" in capsys.readouterr().err
+    assert REMEDY in capsys.readouterr().err
 
 
 @pytest.mark.spec("pod.session-closes-on-every-exit")
@@ -564,7 +569,7 @@ def test_a_failed_teardown_exits_1_naming_the_teardown_that_reads_the_key(tmp_pa
     rc, _ = _on_pod(tmp_path, opener, FakeComfyClient())
 
     assert rc == 1
-    assert "uv run --env-file .env gpunit down" in capsys.readouterr().err
+    assert REMEDY in capsys.readouterr().err
 
 
 class _DeadPipe:

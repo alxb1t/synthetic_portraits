@@ -160,7 +160,7 @@ def _on_pod(
                 return 1
             return render(client)
     except BaseException as fault:
-        code = gpu.fault_exit(fault, _say)
+        code = gpu.fault_exit(fault, _say, REPOSITORY)
         if code is None:
             raise
         return code

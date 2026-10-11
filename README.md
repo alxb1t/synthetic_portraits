@@ -82,6 +82,7 @@ uv run --group faces python generate.py --pod \
 uv run --group faces scripts/check_face.py outputs/*.png
 
 # If a session is ever left behind (the command says so), delete it. gpunit reads no .env:
+# run from the repository root; a key your shell exports wins over the one in .env.
 uv run --env-file .env gpunit status
 uv run --env-file .env gpunit down
 ```

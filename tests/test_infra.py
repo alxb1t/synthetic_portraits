@@ -454,19 +454,65 @@ def test_the_record_reads_past_a_checksummed_url_and_an_image_copy():
     assert copied(dockerfile) == ["a.py"]
 
 
+@pytest.mark.spec("pod.image-record-matches-the-tree")
+def test_the_record_sees_a_copy_after_a_comment_ending_in_a_backslash():
+    # Docker continues no comment, so the `COPY` below it is an instruction of its own.
+    dockerfile = "FROM x\n# copy the helper \\\nCOPY b.py /b.py\nCOPY a.py /a.py\n"
+    assert copied(dockerfile) == ["b.py", "a.py"]
+
+
+def context_faults(dockerignore: str | None, sources: list[str]) -> list[str]:
+    """Return how `.dockerignore` misses admitting the copied files and nothing else.
+
+    A build sends its whole context to the builder, `.env` and `.gpunit/`'s keys with it,
+    unless excluded (security S2). e.g. None -> ["a .dockerignore"]
+    """
+    if dockerignore is None:
+        return ["a .dockerignore"]
+    patterns = [line.strip() for line in dockerignore.splitlines()]
+    patterns = [line for line in patterns if line and not line.startswith("#")]
+    expected = ["*", *(f"!{source}" for source in sources)]
+    faults = [f"not {line}" for line in patterns if line not in expected]
+    faults += [line for line in expected if line not in patterns]
+    if "*" in patterns and patterns[0] != "*":
+        # A later pattern wins, so the exclusion must come before every admission.
+        faults.append("* first")
+    return faults
+
+
+@pytest.mark.spec_exempt("structural: the build context admits only what the image copies (S2)")
+def test_the_build_context_admits_only_the_files_the_image_copies():
+    dockerignore = REPO_ROOT / ".dockerignore"
+    text = dockerignore.read_text() if dockerignore.is_file() else None
+    assert context_faults(text, copied(DOCKERFILE.read_text())) == []
+
+
+@pytest.mark.spec_exempt("structural: twin of the build context check")
+def test_the_context_check_catches_no_file_a_secret_admitted_and_a_copy_left_out():
+    assert context_faults(None, ["a.py"]) == ["a .dockerignore"]
+    assert context_faults("# the copies\n*\n!a.py\n!.env\n", ["a.py", "b.py"]) == [
+        "not !.env",
+        "!b.py",
+    ]
+    assert context_faults("!a.py\n*\n", ["a.py"]) == ["* first"]
+
+
 def unprinted_record(workflow: str) -> list[str]:
     """Return what the workflow's summary lacks of the digest and the build record."""
     faults = []
     if not re.search(r"\$\{\{ steps\.build\.outputs\.digest \}\}", workflow):
         faults.append("the digest")
-    printed = re.search(
-        r"python3 tools/image_record\.py\n(?:.*\n)*?.*>> \"\$GITHUB_STEP_SUMMARY\"", workflow
-    )
-    if not printed:
+    # The record is written to a file before the build, so a `COPY` the tool refuses stops
+    # the run before an image is pushed under the tag, and that file reaches the summary.
+    computed = re.search(r'python3 tools/image_record\.py\n(?:.*\n)*?\s*\} > "(\S+)"\n', workflow)
+    if not computed or f'cat "{computed[1]}" >> "$GITHUB_STEP_SUMMARY"' not in workflow:
         faults.append("the build record")
     checkout = workflow.find("actions/checkout@")
-    if checkout < 0 or (printed and checkout > printed.start()):
+    if checkout < 0 or (computed and checkout > computed.start()):
         faults.append("its own checkout first")
+    build = workflow.find("id: build")
+    if not computed or build < 0 or computed.start() > build:
+        faults.append("the record before the build")
     return faults
 
 
@@ -481,7 +527,19 @@ def test_the_record_print_check_catches_a_summary_without_the_record():
         "the digest",
         "the build record",
         "its own checkout first",
+        "the record before the build",
     ]
+
+
+@pytest.mark.spec_exempt("structural: twin of the workflow's record check")
+def test_the_record_print_check_catches_a_record_computed_after_the_push():
+    late = (
+        "steps:\n  - uses: actions/checkout@x\n  - id: build\n"
+        "  - run: echo ${{ steps.build.outputs.digest }}\n"
+        '  - run: |\n      {\n        python3 tools/image_record.py\n      } > "r.md"\n'
+        '  - run: cat "r.md" >> "$GITHUB_STEP_SUMMARY"\n'
+    )
+    assert unprinted_record(late) == ["the record before the build"]
 
 
 # --- check_face.py runs as documented (change 0004, D10) ---------------------

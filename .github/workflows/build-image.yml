@@ -40,6 +40,17 @@ jobs:
 
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
+      # What the image is built from: `config/image.json`'s `files` must equal it. Computed
+      # before the build, so a `COPY` the tool cannot read stops the run before any push.
+      - name: Compute the build record
+        run: |
+          set -euo pipefail
+          {
+            echo '```json'
+            python3 tools/image_record.py
+            echo '```'
+          } > "$RUNNER_TEMP/build-record.md"
+
       # The cu128 torch + ComfyUI image is ~7 GB; default runners have only ~14 GB
       # free, which fills mid-build and the runner is reaped (job shows "cancelled").
       # Reclaim the preinstalled toolchains we don't use (~25 GB) before building.
@@ -75,12 +86,5 @@ jobs:
         run: |
           echo "Image: ghcr.io/alxb1t/synthetic_portraits:${TAG}@${DIGEST}" >> "$GITHUB_STEP_SUMMARY"
 
-      # What the image was built from: `config/image.json`'s `files` must equal it.
       - name: Report the build record
-        run: |
-          set -euo pipefail
-          {
-            echo '```json'
-            python3 tools/image_record.py
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
+        run: cat "$RUNNER_TEMP/build-record.md" >> "$GITHUB_STEP_SUMMARY"

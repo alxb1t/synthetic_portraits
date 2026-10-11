@@ -14,19 +14,21 @@ files and the annotated tag are one line — they agree, or the release halts.
 ### Added
 
 - **`gpunit.toml` declares the render session's GPU**: the pin, the cards, the floors, the 45-minute
-  ceiling and the volume. `config/image.json` carries a placeholder digest no pod can pull until the
-  image is rebuilt.
+  ceiling and the volume.
 - **`gpunit` is a runtime dependency, pinned at `v0.2.0`**, the exception `CLAUDE.md` names beside
   `faces`.
 - **`generate.py --pod` renders a batch through one gpunit session**: the image it booted printed, a
-  900 s wait for ComfyUI through the tunnel, the session closed on every exit.
-  `synthetic_portraits/gpu.py` is gpunit's one seam.
+  900 s wait for ComfyUI through the tunnel, the session closed on every exit, and any
+  `gpunit down` it prints run from the repository root. `synthetic_portraits/gpu.py` is gpunit's
+  one seam.
 - **The pod boots in Python under gpunit's `boot.sh`**: `pod_start.py` maps the models onto the
   volume and runs `provision.py fetch` over `config/models.json`, each file SHA-256 verified, then
   execs ComfyUI.
 - **The image is pinned and recorded**: `FROM` by digest; `build-image.yml` builds only on a
   dispatched tag, refuses `latest`, prunes nothing, pins actions by SHA, and prints the digest and
-  `tools/image_record.py`'s record, which `config/image.json` holds and a test re-derives.
+  `tools/image_record.py`'s record, computed before the push, which `config/image.json` holds and
+  a test re-derives. `.dockerignore` admits only the copied files, so `.env` and `.gpunit/` never
+  reach a builder.
 - **The pod image is pinned at `v0.6-rc1`** (`sha256:eb673946…861c`), proved by one `--pod` render
   on a fresh volume: provisioned, rendered, one antelopev2 face, pod deleted, in 6.5 minutes.
 
