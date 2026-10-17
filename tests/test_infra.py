@@ -193,27 +193,43 @@ def test_constraints_numpy_pin_can_hold_beside_every_other_pin():
         )
 
 
-# --- gpunit.toml is the session's spec: the pin, the floors, the ceiling, the volume -------
+# --- gpunit.toml is the session's spec: the pin, the floors, the ceiling, the window -------
+
+
+def duration_s(value: object) -> int | None:
+    """Return a gpunit duration in seconds, or None when it is not one.
+
+    e.g. "4h" -> 14400, "4" -> None
+    """
+    try:
+        return parse_ceiling(str(value))
+    except ValueError:
+        return None
 
 
 def spec_faults(spec: Mapping[str, object], config: Mapping[str, object]) -> list[str]:
-    """Return each way `gpunit.toml` misses the pin, the floors, the ceiling or the volume.
+    """Return each way `gpunit.toml` misses the pin, the floors, the ceiling or the window.
 
-    e.g. `image = "ghcr.io/a/b:latest"`, no `volume` -> ["not config/image.json's pin", "no volume"]
+    e.g. `image = "ghcr.io/a/b:latest"`, a kept `volume` -> ["not config/image.json's pin",
+    "no window volume"]
     """
     faults = []
     digest = str(config.get("digest", ""))
     pinned = f"{config.get('image')}@{digest}"
     if not re.fullmatch(r"sha256:[0-9a-f]{64}", digest) or spec.get("image") != pinned:
         faults.append("not config/image.json's pin")
-    try:
-        ceiling_s = parse_ceiling(str(spec.get("ceiling", "")))
-    except ValueError:
-        ceiling_s = None
+    ceiling_s = duration_s(spec.get("ceiling", ""))
     if ceiling_s is None or ceiling_s > 45 * 60:
         faults.append("no ceiling within 45 minutes")
-    if not spec.get("volume"):
-        faults.append("no volume")
+    # the window's volume, sized and bounded; a kept `volume` is no window (gpunit refuses it
+    # beside `volume_gb`, but only when `--pod` loads the spec, so the gate faults it here)
+    size_gb = spec.get("volume_gb")
+    window_s = duration_s(spec.get("volume_ceiling", ""))
+    if not (isinstance(size_gb, int) and window_s) or "volume" in spec:
+        faults.append("no window volume")
+    # CLAUDE.md's pod rule: a window of 4 hours, about $0.02 for its 50 GB
+    elif window_s > 4 * 3600 or size_gb > 50:
+        faults.append("no window within 4 hours and 50 GB")
     vram = spec.get("vram_gb")
     if not (isinstance(vram, int) and vram >= 24):
         faults.append("under 24 GB of card memory")
@@ -235,7 +251,8 @@ def test_the_spec_check_catches_a_tag_a_long_ceiling_and_a_missing_floor():
     good = {
         "image": "ghcr.io/a/b@sha256:" + "0" * 64,
         "ceiling": "45m",
-        "volume": "v",
+        "volume_gb": 50,
+        "volume_ceiling": "4h",
         "vram_gb": 24,
         "cuda": "12.8",
     }
@@ -248,9 +265,16 @@ def test_the_spec_check_catches_a_tag_a_long_ceiling_and_a_missing_floor():
     ]
     assert spec_faults({**good, "ceiling": "1h"}, config) == ["no ceiling within 45 minutes"]
     assert spec_faults({**good, "ceiling": "45"}, config) == ["no ceiling within 45 minutes"]
-    bare = {"image": good["image"], "ceiling": "45m", "vram_gb": 16}
+    assert spec_faults({**good, "volume_gb": "50"}, config) == ["no window volume"]
+    assert spec_faults({**good, "volume_ceiling": "4"}, config) == ["no window volume"]
+    assert spec_faults({**good, "volume": "v"}, config) == ["no window volume"]
+    assert spec_faults({**good, "volume_ceiling": "5h"}, config) == [
+        "no window within 4 hours and 50 GB"
+    ]
+    assert spec_faults({**good, "volume_gb": 51}, config) == ["no window within 4 hours and 50 GB"]
+    bare = {"image": good["image"], "ceiling": "45m", "volume": "v", "vram_gb": 16}
     assert spec_faults(bare, config) == [
-        "no volume",
+        "no window volume",
         "under 24 GB of card memory",
         "not CUDA 12.8",
     ]
@@ -295,14 +319,16 @@ def test_the_image_starts_through_gpunits_boot_script_into_the_start_module():
 
 @pytest.mark.spec_exempt("structural: twin of the image's launch check")
 def test_the_launch_check_catches_a_shell_start_and_a_boot_script_at_another_tag():
-    pyproject = '"gpunit @ git+https://github.com/alxb1t/gpunit@v0.2.0",'
+    pyproject = (REPO_ROOT / "pyproject.toml").read_text()
+    tag = re.search(r'gpunit@(v[0-9][^"]*)', pyproject)
+    assert tag
     assert launch_faults('CMD ["/opt/start.sh"]\n', pyproject) == [
         "boot.sh added at gpunit's pinned tag with a checksum",
         "boot.sh as the entry point",
         "the start module as the command",
         "the start module copied in",
     ]
-    moved = DOCKERFILE.read_text().replace("gpunit/v0.2.0/", "gpunit/v0.1.0/")
+    moved = DOCKERFILE.read_text().replace(f"gpunit/{tag[1]}/", "gpunit/v0.1.0/")
     assert launch_faults(moved, pyproject) == [
         "boot.sh added at gpunit's pinned tag with a checksum"
     ]

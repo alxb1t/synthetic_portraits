@@ -147,7 +147,9 @@ With `--pod`, the command line SHALL open one gpunit session from the repository
 the process environment with the repository's `.env` read over it and naming no provider variable itself; SHALL
 print the image the session booted; SHALL wait at most 900 seconds for the render server to answer through the
 session's forwarded port; SHALL render the whole batch it was given; and SHALL close the session on every way
-out. Without `--pod`, `--server` names the render server as before.
+out. The session SHALL mount the working window's volume, which `gpunit volume up` makes and `gpunit volume down`
+or the window's ceiling deletes, so a pod opened outside a window is refused before any create. Without `--pod`,
+`--server` names the render server as before.
 
 #### Scenario: Every exit closes the session
 
@@ -182,7 +184,8 @@ out. Without `--pod`, `--server` names the render server as before.
 
 - **WHEN** `gpunit.toml` is read
 - **THEN** its image is a digest equal to the one `config/image.json` records, its ceiling is no longer than 45
-  minutes, it names a volume, and it asks for at least 24 GB of card memory and CUDA 12.8
+  minutes, it asks for a window volume by its size and its ceiling and names no kept volume, and it asks for at
+  least 24 GB of card memory and CUDA 12.8
 - **Key:** `pod.session-spec-pins`
 - **Layers:** structural
 

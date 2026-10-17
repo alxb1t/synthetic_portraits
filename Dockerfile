@@ -88,8 +88,8 @@ COPY synthetic_portraits/provision.py /opt/sp/provision.py
 COPY config/models.json /opt/sp/models.json
 
 # gpunit's boot script, at the tag pyproject.toml pins gpunit at.
-ADD --checksum=sha256:18742fd46a9889af6212aa76667a43a653767d53f770e0739881869a1f3b03ad \
-    https://raw.githubusercontent.com/alxb1t/gpunit/v0.2.0/boot/boot.sh /opt/gpunit/boot.sh
+ADD --checksum=sha256:517ade6bf20d9869baeb1f1ff1ab45d9ab63c2fa477127ff11dac89611bec842 \
+    https://raw.githubusercontent.com/alxb1t/gpunit/v0.7.0/boot/boot.sh /opt/gpunit/boot.sh
 RUN chmod +x /opt/gpunit/boot.sh
 
 EXPOSE 8188 22

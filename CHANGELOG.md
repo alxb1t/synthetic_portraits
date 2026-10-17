@@ -11,6 +11,21 @@ files and the annotated tag are one line — they agree, or the release halts.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-17
+
+### Changed
+
+- **`gpunit` is pinned at `v0.7.0`**, for its working window; the image `ADD`s `boot.sh` from the
+  same tag, since gpunit refuses a boot script older than `v0.6.0`.
+- **`gpunit.toml` asks for a working window**: `volume_gb = 50` and `volume_ceiling = "4h"` replace
+  the kept volume, which answered 404; the spec check asks for the window, within 4 hours and 50 GB.
+- **The order of commands** in `CLAUDE.md`'s pod rule and README's `--pod` block: `gpunit volume up
+  --yes` before a batch, `gpunit volume down` after, and the RunPod check covers the volume.
+- **The pod image is pinned at `v0.7-rc1`** (`sha256:818332c6…d4ac`), rebuilt from this tree; its
+  build record equals `config/image.json`'s `files`.
+- **Proved in one working window**: a first `--pod` run filled the window's volume, and a later one
+  on a new pod skipped every model as present and verified; `volume down` left no pod or volume.
+
 ## [0.6.0] - 2026-10-11
 
 ### Added

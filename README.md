@@ -4,10 +4,10 @@ A self-hosted, headless pipeline: **text prompt → photoreal upper-body image o
 who does not exist** — face, torso, arms, hands, and clothes — using open SDXL models
 (**RealVisXL V5.0**) via **ComfyUI** on an on-demand **RunPod** GPU.
 
-**Status:** **v0.6.0** is the latest release — GPU sessions through gpunit: `generate.py --pod`
-opens a session, renders the batch and tears it down, the pod boots in Python, and the image is
-pinned by digest. No shell script is left. It follows v0.5.0, where the quality gate is declared
-once, in the `Makefile`, and CI runs `make gate`.
+**Status:** **v0.7.0** is the latest release — the working window: `gpunit volume up` makes the models
+volume before a `generate.py --pod` batch and `gpunit volume down` ends it, so nothing bills between
+windows. gpunit is pinned at `v0.7.0` and the pod image is rebuilt for it. It follows v0.6.0, where
+`--pod` opens a gpunit session and the pod boots in Python.
 See [`CHANGELOG.md`](CHANGELOG.md).
 
 One prompt → one person; another prompt → another person. Clothing and pose are driven from
@@ -45,7 +45,8 @@ generate.py --pod ─▶ gpunit session (gpunit.toml) ─▶ RunPod pod, image b
   render pipeline, and the CLI. `pod_start.py` boots the pod under gpunit's `boot.sh` (maps the
   models onto the volume, fetches them through `provision.py` and `config/models.json`, launches
   ComfyUI).
-- **`gpunit.toml`** — the GPU session's spec: the image pin, the cards, the ceiling, the volume.
+- **`gpunit.toml`** — the GPU session's spec: the image pin, the cards, the ceiling, the window
+  volume's size and ceiling.
 - **`workflows/realvis-txt2img.json`** — the ComfyUI API-format graph.
 - **`scripts/check_face.py`** — offline antelopev2 detectability assertion for the demo set.
 
@@ -53,17 +54,24 @@ generate.py --pod ─▶ gpunit session (gpunit.toml) ─▶ RunPod pod, image b
 
 Prerequisites: [uv](https://docs.astral.sh/uv/), a RunPod account, and `.env` holding the key
 (copy `.env.example` → `.env`, fill in `RUNPOD_API_KEY`). Everything else the session needs —
-the image pin, the cards, the 45-minute ceiling, the volume — is in `gpunit.toml`.
+the image pin, the cards, the 45-minute ceiling, the window volume's size and ceiling — is in
+`gpunit.toml`.
 
 > **The CLI needs the `faces` group, not just `check_face.py`.** `generate.py` builds the real
 > antelopev2 detector on every run; without the group it fails fast, naming it, before any pod
 > is opened.
 
 ```bash
-# 0. Install the optional face-detection group. The CLI needs it, not only step 2.
+# 0. Open a working window (⚠️ metered — about $0.02 for its 4 hours). gpunit makes the
+#    models volume that every `--pod` run in the window mounts, so the models download once a
+#    window. Run it again to extend a live window. gpunit reads no .env: run from the
+#    repository root; a key your shell exports wins over the one in .env.
+uv run --env-file .env gpunit volume up --yes
+
+# 1. Install the optional face-detection group. The CLI needs it, not only step 3.
 uv sync --group faces
 
-# 1. Render on a rented GPU (⚠️ metered — bills per second). `--pod` opens one gpunit session
+# 2. Render on a rented GPU (⚠️ metered — bills per second). `--pod` opens one gpunit session
 #    for the whole batch, prints the image it booted, waits up to 900 s for ComfyUI, renders,
 #    and tears the pod down on every way out. The hardened default graph (latent hi-res +
 #    FaceDetailer) yields a clean, antelopev2-detectable face at any framing.
@@ -71,20 +79,23 @@ uv run --group faces python generate.py --pod \
   --prompt "full body photo of a woman, full height, casual jacket and jeans, front facing" \
   --seed 42 -n 3 --out outputs
 
-# 1b. Same person across shots — point --identity at a hero face (InstantID). Pair it with
+# 2b. Same person across shots — point --identity at a hero face (InstantID). Pair it with
 #     --prompts (one prompt per line) to render a same-person character sheet with auto-regenerate.
 uv run --group faces python generate.py --pod \
   --identity outputs/hero.png \
   --prompts sheet.txt \
   --seed 42 --out outputs
 
-# 2. Verify every image has exactly one antelopev2-detectable frontal face.
+# 3. Verify every image has exactly one antelopev2-detectable frontal face.
 uv run --group faces scripts/check_face.py outputs/*.png
 
-# If a session is ever left behind (the command says so), delete it. gpunit reads no .env:
-# run from the repository root; a key your shell exports wins over the one in .env.
+# If a session is ever left behind (the command says so), delete it.
 uv run --env-file .env gpunit status
 uv run --env-file .env gpunit down
+
+# 4. Close the window when the work is done. Its 4-hour ceiling ends a window nobody
+#    closes, at the next gpunit command.
+uv run --env-file .env gpunit volume down
 ```
 
 Against a ComfyUI you run yourself, drop `--pod` and pass `--server <url>` (default

@@ -109,8 +109,8 @@ wheels = [
 
 [[package]]
 name = "gpunit"
-version = "0.2.0"
-source = { git = "https://github.com/alxb1t/gpunit?rev=v0.2.0#977839a1c1fb739afe0c31ab40a3421590616b15" }
+version = "0.7.0"
+source = { git = "https://github.com/alxb1t/gpunit?rev=v0.7.0#e3b819b7d0951b0a99c2cab630e97ee2fabd059a" }
 
 [[package]]
 name = "idna"
@@ -859,7 +859,7 @@ wheels = [
 
 [[package]]
 name = "synthetic-portraits"
-version = "0.6.0"
+version = "0.7.0"
 source = { virtual = "." }
 dependencies = [
     { name = "gpunit" },
@@ -878,7 +878,7 @@ faces = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "gpunit", git = "https://github.com/alxb1t/gpunit?rev=v0.2.0" }]
+requires-dist = [{ name = "gpunit", git = "https://github.com/alxb1t/gpunit?rev=v0.7.0" }]
 
 [package.metadata.requires-dev]
 dev = [
