@@ -15,4 +15,7 @@ disk_gb = 30
 ports = [8188]
 ceiling = "45m"
 timeout = 600
-volume = "klklbwxdhu"
+# the working window: made by `gpunit volume up`, ended by `volume down` or its ceiling
+# why: 0007-the-working-window design D4
+volume_gb = 50
+volume_ceiling = "4h"

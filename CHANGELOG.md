@@ -17,6 +17,10 @@ files and the annotated tag are one line — they agree, or the release halts.
   same tag, since gpunit refuses a boot script older than `v0.6.0`.
 - **The build record follows the tree**: `config/image.json`'s `files` renewed; its tag and digest,
   and `gpunit.toml`'s, are a placeholder until the image is rebuilt.
+- **`gpunit.toml` asks for a working window**: `volume_gb = 50` and `volume_ceiling = "4h"` replace
+  the kept volume, which answered 404; the spec check asks for the window.
+- **The order of commands** in `CLAUDE.md`'s pod rule and README's `--pod` block: `gpunit volume up
+  --yes` before a batch, `gpunit volume down` after, and the RunPod check covers the volume.
 
 ## [0.6.0] - 2026-10-11
 

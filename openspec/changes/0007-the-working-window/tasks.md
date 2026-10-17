@@ -6,7 +6,7 @@ per [design](design.md). No new test key: `pod.session-spec-pins` and `pod.launc
 ## Progress
 
 - [x] 1 — The pin
-- [ ] 2 — The window
+- [x] 2 — The window
 - [ ] 3 — **HUMAN** — the image rebuilt and re-pinned
 - [ ] 4 — ⚠️ **HUMAN · METERED** — one working window, a first and a second --pod run
 
@@ -23,11 +23,11 @@ per [design](design.md). No new test key: `pod.session-spec-pins` and `pod.launc
 
 ## 2 — The window
 
-- [ ] 2.1 In `gpunit.toml` replace `volume` with `volume_gb = 50` and `volume_ceiling = "4h"`; in `tests/test_infra.py` make `spec_faults`, its docstring, the comment at `:196` and its twin ask for the window; per [D4](design.md#d4).
+- [x] 2.1 In `gpunit.toml` replace `volume` with `volume_gb = 50` and `volume_ceiling = "4h"`; in `tests/test_infra.py` make `spec_faults`, its docstring, the comment at `:196` and its twin ask for the window; per [D4](design.md#d4).
   Verify: `uv run python -c 'import gpunit, pathlib; s = gpunit.load_spec(pathlib.Path("gpunit.toml")); print(s.volume, s.volume_gb, s.volume_ceiling_s)'` prints `None 50 14400`, and `grep -c '"no volume"' tests/test_infra.py` prints `0`.
-- [ ] 2.2 Write the order of commands, the window's 4 hours and ~$0.02, and the volume in the RunPod check into `CLAUDE.md`'s pod rule, per [D5](design.md#d5) and [D6](design.md#d6).
+- [x] 2.2 Write the order of commands, the window's 4 hours and ~$0.02, and the volume in the RunPod check into `CLAUDE.md`'s pod rule, per [D5](design.md#d5) and [D6](design.md#d6).
   Verify: `grep -c -E 'gpunit volume up --yes|gpunit volume down' CLAUDE.md` prints a number of at least `2`, and `grep -c '4 hours' CLAUDE.md` prints a number of at least `1`.
-- [ ] 2.3 Open README's `--pod` block with `volume up --yes` and end it with `volume down`; reword `README.md:48` and `:56` to the window volume's size and ceiling; per [D5](design.md#d5) and [D6](design.md#d6).
+- [x] 2.3 Open README's `--pod` block with `volume up --yes` and end it with `volume down`; reword `README.md:48` and `:56` to the window volume's size and ceiling; per [D5](design.md#d5) and [D6](design.md#d6).
   Verify: `grep -c -E 'gpunit volume up --yes|gpunit volume down' README.md` prints a number of at least `2`, and `grep -c -E 'the ceiling, the volume\.|ceiling, the volume —' README.md` prints `0`.
 
 ## 3 — **HUMAN** — the image rebuilt and re-pinned

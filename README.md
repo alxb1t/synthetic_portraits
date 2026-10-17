@@ -45,7 +45,8 @@ generate.py --pod ─▶ gpunit session (gpunit.toml) ─▶ RunPod pod, image b
   render pipeline, and the CLI. `pod_start.py` boots the pod under gpunit's `boot.sh` (maps the
   models onto the volume, fetches them through `provision.py` and `config/models.json`, launches
   ComfyUI).
-- **`gpunit.toml`** — the GPU session's spec: the image pin, the cards, the ceiling, the volume.
+- **`gpunit.toml`** — the GPU session's spec: the image pin, the cards, the ceiling, the window
+  volume's size and ceiling.
 - **`workflows/realvis-txt2img.json`** — the ComfyUI API-format graph.
 - **`scripts/check_face.py`** — offline antelopev2 detectability assertion for the demo set.
 
@@ -53,13 +54,20 @@ generate.py --pod ─▶ gpunit session (gpunit.toml) ─▶ RunPod pod, image b
 
 Prerequisites: [uv](https://docs.astral.sh/uv/), a RunPod account, and `.env` holding the key
 (copy `.env.example` → `.env`, fill in `RUNPOD_API_KEY`). Everything else the session needs —
-the image pin, the cards, the 45-minute ceiling, the volume — is in `gpunit.toml`.
+the image pin, the cards, the 45-minute ceiling, the window volume's size and ceiling — is in
+`gpunit.toml`.
 
 > **The CLI needs the `faces` group, not just `check_face.py`.** `generate.py` builds the real
 > antelopev2 detector on every run; without the group it fails fast, naming it, before any pod
 > is opened.
 
 ```bash
+# Open a working window first (⚠️ metered — about $0.02 for its 4 hours). gpunit makes the
+# models volume that every `--pod` run in the window mounts, so the models download once a
+# window. Run it again to extend a live window. gpunit reads no .env: run from the repository
+# root; a key your shell exports wins over the one in .env.
+uv run --env-file .env gpunit volume up --yes
+
 # 0. Install the optional face-detection group. The CLI needs it, not only step 2.
 uv sync --group faces
 
@@ -81,10 +89,13 @@ uv run --group faces python generate.py --pod \
 # 2. Verify every image has exactly one antelopev2-detectable frontal face.
 uv run --group faces scripts/check_face.py outputs/*.png
 
-# If a session is ever left behind (the command says so), delete it. gpunit reads no .env:
-# run from the repository root; a key your shell exports wins over the one in .env.
+# If a session is ever left behind (the command says so), delete it.
 uv run --env-file .env gpunit status
 uv run --env-file .env gpunit down
+
+# Close the window when the work is done. Its 4-hour ceiling ends a window nobody closes,
+# at the next gpunit command.
+uv run --env-file .env gpunit volume down
 ```
 
 Against a ComfyUI you run yourself, drop `--pod` and pass `--server <url>` (default

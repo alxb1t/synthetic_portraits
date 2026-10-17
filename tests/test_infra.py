@@ -193,13 +193,14 @@ def test_constraints_numpy_pin_can_hold_beside_every_other_pin():
         )
 
 
-# --- gpunit.toml is the session's spec: the pin, the floors, the ceiling, the volume -------
+# --- gpunit.toml is the session's spec: the pin, the floors, the ceiling, the window -------
 
 
 def spec_faults(spec: Mapping[str, object], config: Mapping[str, object]) -> list[str]:
-    """Return each way `gpunit.toml` misses the pin, the floors, the ceiling or the volume.
+    """Return each way `gpunit.toml` misses the pin, the floors, the ceiling or the window.
 
-    e.g. `image = "ghcr.io/a/b:latest"`, no `volume` -> ["not config/image.json's pin", "no volume"]
+    e.g. `image = "ghcr.io/a/b:latest"`, a kept `volume` -> ["not config/image.json's pin",
+    "no window volume"]
     """
     faults = []
     digest = str(config.get("digest", ""))
@@ -212,8 +213,9 @@ def spec_faults(spec: Mapping[str, object], config: Mapping[str, object]) -> lis
         ceiling_s = None
     if ceiling_s is None or ceiling_s > 45 * 60:
         faults.append("no ceiling within 45 minutes")
-    if not spec.get("volume"):
-        faults.append("no volume")
+    # gpunit refuses `volume` beside `volume_gb`, so a kept volume is no window
+    if not (isinstance(spec.get("volume_gb"), int) and spec.get("volume_ceiling")):
+        faults.append("no window volume")
     vram = spec.get("vram_gb")
     if not (isinstance(vram, int) and vram >= 24):
         faults.append("under 24 GB of card memory")
@@ -235,7 +237,8 @@ def test_the_spec_check_catches_a_tag_a_long_ceiling_and_a_missing_floor():
     good = {
         "image": "ghcr.io/a/b@sha256:" + "0" * 64,
         "ceiling": "45m",
-        "volume": "v",
+        "volume_gb": 50,
+        "volume_ceiling": "4h",
         "vram_gb": 24,
         "cuda": "12.8",
     }
@@ -248,9 +251,11 @@ def test_the_spec_check_catches_a_tag_a_long_ceiling_and_a_missing_floor():
     ]
     assert spec_faults({**good, "ceiling": "1h"}, config) == ["no ceiling within 45 minutes"]
     assert spec_faults({**good, "ceiling": "45"}, config) == ["no ceiling within 45 minutes"]
-    bare = {"image": good["image"], "ceiling": "45m", "vram_gb": 16}
+    assert spec_faults({**good, "volume_gb": "50"}, config) == ["no window volume"]
+    assert spec_faults({**good, "volume_ceiling": ""}, config) == ["no window volume"]
+    bare = {"image": good["image"], "ceiling": "45m", "volume": "v", "vram_gb": 16}
     assert spec_faults(bare, config) == [
-        "no volume",
+        "no window volume",
         "under 24 GB of card memory",
         "not CUDA 12.8",
     ]
