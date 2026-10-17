@@ -62,16 +62,16 @@ the image pin, the cards, the 45-minute ceiling, the window volume's size and ce
 > is opened.
 
 ```bash
-# Open a working window first (⚠️ metered — about $0.02 for its 4 hours). gpunit makes the
-# models volume that every `--pod` run in the window mounts, so the models download once a
-# window. Run it again to extend a live window. gpunit reads no .env: run from the repository
-# root; a key your shell exports wins over the one in .env.
+# 0. Open a working window (⚠️ metered — about $0.02 for its 4 hours). gpunit makes the
+#    models volume that every `--pod` run in the window mounts, so the models download once a
+#    window. Run it again to extend a live window. gpunit reads no .env: run from the
+#    repository root; a key your shell exports wins over the one in .env.
 uv run --env-file .env gpunit volume up --yes
 
-# 0. Install the optional face-detection group. The CLI needs it, not only step 2.
+# 1. Install the optional face-detection group. The CLI needs it, not only step 3.
 uv sync --group faces
 
-# 1. Render on a rented GPU (⚠️ metered — bills per second). `--pod` opens one gpunit session
+# 2. Render on a rented GPU (⚠️ metered — bills per second). `--pod` opens one gpunit session
 #    for the whole batch, prints the image it booted, waits up to 900 s for ComfyUI, renders,
 #    and tears the pod down on every way out. The hardened default graph (latent hi-res +
 #    FaceDetailer) yields a clean, antelopev2-detectable face at any framing.
@@ -79,22 +79,22 @@ uv run --group faces python generate.py --pod \
   --prompt "full body photo of a woman, full height, casual jacket and jeans, front facing" \
   --seed 42 -n 3 --out outputs
 
-# 1b. Same person across shots — point --identity at a hero face (InstantID). Pair it with
+# 2b. Same person across shots — point --identity at a hero face (InstantID). Pair it with
 #     --prompts (one prompt per line) to render a same-person character sheet with auto-regenerate.
 uv run --group faces python generate.py --pod \
   --identity outputs/hero.png \
   --prompts sheet.txt \
   --seed 42 --out outputs
 
-# 2. Verify every image has exactly one antelopev2-detectable frontal face.
+# 3. Verify every image has exactly one antelopev2-detectable frontal face.
 uv run --group faces scripts/check_face.py outputs/*.png
 
 # If a session is ever left behind (the command says so), delete it.
 uv run --env-file .env gpunit status
 uv run --env-file .env gpunit down
 
-# Close the window when the work is done. Its 4-hour ceiling ends a window nobody closes,
-# at the next gpunit command.
+# 4. Close the window when the work is done. Its 4-hour ceiling ends a window nobody
+#    closes, at the next gpunit command.
 uv run --env-file .env gpunit volume down
 ```
 
