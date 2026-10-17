@@ -108,9 +108,10 @@ claiming `v0.6-rc1` was built from this tree. An image with `v0.2.0`'s `boot.sh`
 `gpunit.toml:18` before → after: `volume = "klklbwxdhu"` → `volume_gb = 50` and `volume_ceiling = "4h"`, its comment
 naming this design. The first window's provisioning log gives the real total.
 
-`spec_faults`: `if not spec.get("volume")` → a fault `"no window volume"` unless `volume_gb` is an `int` and
-`volume_ceiling` is set. gpunit refuses `volume` beside `volume_gb`, so a kept volume alone is `"no window volume"`.
-The docstring, the section comment at `:196`, and the twin's `good` and `bare` dicts follow.
+`spec_faults`: `if not spec.get("volume")` → a fault `"no window volume"` unless `volume_gb` is an `int`,
+`volume_ceiling` is set and no `volume` is named: gpunit refuses that pairing only when `--pod` loads the spec, so
+the gate faults it itself. A window over 4 hours or 50 GB is `"no window within 4 hours and 50 GB"`, the window
+`CLAUDE.md`'s pod rule promises, as the session's ceiling is held to 45 minutes. The docstring, the section comment at `:196`, and the twin's `good` and `bare` dicts follow.
 
 ### D5
 
@@ -147,7 +148,8 @@ uv run --group faces python generate.py --pod --prompt "<README's first prompt>"
 uv run --env-file .env gpunit volume down
 ```
 
-Each run's output is kept as `run.log` in its `--out` directory, as `outputs/v0.6-rc1-proof/` keeps it. The pod's
+Each run's output is kept as `run.log` in its `--out` directory, as `outputs/v0.6-rc1-proof/` keeps it. The first
+window run's `run.log` was not kept; the second run's `provision.log` and `run.log` carry the proof. The pod's
 own log is not in `generate.py`'s output: while the second session is open, the operator reads the pod's log
 through the RunPod MCP's `stream-pod-logs` and saves it as `outputs/v0.7-window-2/provision.log`. It shows
 `skip (present, verified)` for every entry of `config/models.json`, and no `fetching:`. Then the RunPod MCP shows
