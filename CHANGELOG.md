@@ -21,6 +21,8 @@ files and the annotated tag are one line — they agree, or the release halts.
   the kept volume, which answered 404; the spec check asks for the window.
 - **The order of commands** in `CLAUDE.md`'s pod rule and README's `--pod` block: `gpunit volume up
   --yes` before a batch, `gpunit volume down` after, and the RunPod check covers the volume.
+- **The pod image is pinned at `v0.7-rc1`** (`sha256:818332c6…d4ac`), built from this tree with
+  `v0.7.0`'s `boot.sh`; its build record equals `config/image.json`'s `files`.
 
 ## [0.6.0] - 2026-10-11
 

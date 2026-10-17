@@ -7,7 +7,7 @@ per [design](design.md). No new test key: `pod.session-spec-pins` and `pod.launc
 
 - [x] 1 — The pin
 - [x] 2 — The window
-- [ ] 3 — **HUMAN** — the image rebuilt and re-pinned
+- [x] 3 — **HUMAN** — the image rebuilt and re-pinned
 - [ ] 4 — ⚠️ **HUMAN · METERED** — one working window, a first and a second --pod run
 
 ## 1 — The pin
@@ -32,7 +32,7 @@ per [design](design.md). No new test key: `pod.session-spec-pins` and `pod.launc
 
 ## 3 — **HUMAN** — the image rebuilt and re-pinned
 
-- [ ] 3.1 **HUMAN** — push `v0.7_the_working_window`; dispatch `build-image.yml` on it with tag `v0.7-rc1`; check its printed record equals `config/image.json`'s `files`; write the tag and digest into `config/image.json` and the digest into `gpunit.toml`; per [D7](design.md#d7).
+- [x] 3.1 **HUMAN** — push `v0.7_the_working_window`; dispatch `build-image.yml` on it with tag `v0.7-rc1`; check its printed record equals `config/image.json`'s `files`; write the tag and digest into `config/image.json` and the digest into `gpunit.toml`; per [D7](design.md#d7).
   Verify: `grep -c '"tag": "v0.7-rc1"' config/image.json` prints `1`, and `grep -l 'sha256:0\{64\}' gpunit.toml config/image.json | wc -l | tr -d ' '` prints `0`.
 
 ## 4 — ⚠️ **HUMAN · METERED** — one working window, a first and a second --pod run
