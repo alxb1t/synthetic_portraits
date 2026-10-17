@@ -23,6 +23,8 @@ files and the annotated tag are one line — they agree, or the release halts.
   --yes` before a batch, `gpunit volume down` after, and the RunPod check covers the volume.
 - **The pod image is pinned at `v0.7-rc1`** (`sha256:818332c6…d4ac`), built from this tree with
   `v0.7.0`'s `boot.sh`; its build record equals `config/image.json`'s `files`.
+- **Proved in one working window**: a first `--pod` run filled the window's volume, and a later one
+  on a new pod skipped every model as present and verified; `volume down` left no pod or volume.
 
 ## [0.6.0] - 2026-10-11
 

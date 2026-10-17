@@ -8,7 +8,7 @@ per [design](design.md). No new test key: `pod.session-spec-pins` and `pod.launc
 - [x] 1 — The pin
 - [x] 2 — The window
 - [x] 3 — **HUMAN** — the image rebuilt and re-pinned
-- [ ] 4 — ⚠️ **HUMAN · METERED** — one working window, a first and a second --pod run
+- [x] 4 — ⚠️ **HUMAN · METERED** — one working window, a first and a second --pod run
 
 ## 1 — The pin
 
@@ -37,7 +37,7 @@ per [design](design.md). No new test key: `pod.session-spec-pins` and `pod.launc
 
 ## 4 — ⚠️ **HUMAN · METERED** — one working window, a first and a second --pod run
 
-- [ ] 4.1 **HALT CHECK** — no session and no window is recorded before the window opens.
+- [x] 4.1 **HALT CHECK** — no session and no window is recorded before the window opens.
   Verify: `uv run --env-file .env gpunit status` prints `no session is recorded` and no `volume=` line.
-- [ ] 4.2 **HUMAN · METERED** — announce, wait for a "go"; open a window, render into `outputs/v0.7-window-1` and `outputs/v0.7-window-2` on new pods, save the second pod's log as `outputs/v0.7-window-2/provision.log`, close the window; confirm through the RunPod MCP that no pod and no volume is left; per [D8](design.md#d8).
+- [x] 4.2 **HUMAN · METERED** — announce, wait for a "go"; open a window, render into `outputs/v0.7-window-1` and `outputs/v0.7-window-2` on new pods, save the second pod's log as `outputs/v0.7-window-2/provision.log`, close the window; confirm through the RunPod MCP that no pod and no volume is left; per [D8](design.md#d8).
   Verify: `python3 -c 'import json; n = len(json.load(open("config/models.json"))["entries"]); log = open("outputs/v0.7-window-2/provision.log").read(); print(log.count("skip (present, verified)") == n, "fetching:" in log)'` prints `True False`, `ls outputs/v0.7-window-1/*.png outputs/v0.7-window-2/*.png | wc -l | tr -d ' '` prints a number of at least `2`, and `uv run --env-file .env gpunit status` prints `no session is recorded` and no `volume=` line.
