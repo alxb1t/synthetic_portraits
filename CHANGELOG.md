@@ -11,6 +11,8 @@ files and the annotated tag are one line — they agree, or the release halts.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-17
+
 ### Changed
 
 - **`gpunit` is pinned at `v0.7.0`**, for its working window; the image `ADD`s `boot.sh` from the

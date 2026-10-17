@@ -4,10 +4,10 @@ A self-hosted, headless pipeline: **text prompt → photoreal upper-body image o
 who does not exist** — face, torso, arms, hands, and clothes — using open SDXL models
 (**RealVisXL V5.0**) via **ComfyUI** on an on-demand **RunPod** GPU.
 
-**Status:** **v0.6.0** is the latest release — GPU sessions through gpunit: `generate.py --pod`
-opens a session, renders the batch and tears it down, the pod boots in Python, and the image is
-pinned by digest. No shell script is left. It follows v0.5.0, where the quality gate is declared
-once, in the `Makefile`, and CI runs `make gate`.
+**Status:** **v0.7.0** is the latest release — the working window: `gpunit volume up` makes the models
+volume before a `generate.py --pod` batch and `gpunit volume down` ends it, so nothing bills between
+windows. gpunit is pinned at `v0.7.0` and the pod image is rebuilt for it. It follows v0.6.0, where
+`--pod` opens a gpunit session and the pod boots in Python.
 See [`CHANGELOG.md`](CHANGELOG.md).
 
 One prompt → one person; another prompt → another person. Clothing and pose are driven from

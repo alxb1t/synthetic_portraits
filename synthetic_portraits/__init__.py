@@ -5,4 +5,4 @@ behind the `FaceDetector` facade. See CLAUDE.md for the scope and the convention
 active change under ``openspec/changes/`` for the decisions behind them.
 """
 
-__version__ = "0.6.0"
+__version__ = "0.7.0"
