@@ -11,6 +11,13 @@ files and the annotated tag are one line — they agree, or the release halts.
 
 ## [Unreleased]
 
+### Changed
+
+- **`gpunit` is pinned at `v0.7.0`**, for its working window; the image `ADD`s `boot.sh` from the
+  same tag, since gpunit refuses a boot script older than `v0.6.0`.
+- **The build record follows the tree**: `config/image.json`'s `files` renewed; its tag and digest,
+  and `gpunit.toml`'s, are a placeholder until the image is rebuilt.
+
 ## [0.6.0] - 2026-10-11
 
 ### Added

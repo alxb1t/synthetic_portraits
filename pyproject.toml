@@ -8,7 +8,7 @@ requires-python = ">=3.11"
 # tag, stdlib only itself, and imported only inside `synthetic_portraits/gpu.py`.
 # Do not add another runtime dep.
 dependencies = [
-    "gpunit @ git+https://github.com/alxb1t/gpunit@v0.2.0",
+    "gpunit @ git+https://github.com/alxb1t/gpunit@v0.7.0",
 ]
 
 [dependency-groups]

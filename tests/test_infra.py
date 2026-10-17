@@ -295,14 +295,14 @@ def test_the_image_starts_through_gpunits_boot_script_into_the_start_module():
 
 @pytest.mark.spec_exempt("structural: twin of the image's launch check")
 def test_the_launch_check_catches_a_shell_start_and_a_boot_script_at_another_tag():
-    pyproject = '"gpunit @ git+https://github.com/alxb1t/gpunit@v0.2.0",'
+    pyproject = '"gpunit @ git+https://github.com/alxb1t/gpunit@v0.7.0",'
     assert launch_faults('CMD ["/opt/start.sh"]\n', pyproject) == [
         "boot.sh added at gpunit's pinned tag with a checksum",
         "boot.sh as the entry point",
         "the start module as the command",
         "the start module copied in",
     ]
-    moved = DOCKERFILE.read_text().replace("gpunit/v0.2.0/", "gpunit/v0.1.0/")
+    moved = DOCKERFILE.read_text().replace("gpunit/v0.7.0/", "gpunit/v0.1.0/")
     assert launch_faults(moved, pyproject) == [
         "boot.sh added at gpunit's pinned tag with a checksum"
     ]

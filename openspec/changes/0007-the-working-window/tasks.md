@@ -5,20 +5,20 @@ per [design](design.md). No new test key: `pod.session-spec-pins` and `pod.launc
 
 ## Progress
 
-- [ ] 1 — The pin
+- [x] 1 — The pin
 - [ ] 2 — The window
 - [ ] 3 — **HUMAN** — the image rebuilt and re-pinned
 - [ ] 4 — ⚠️ **HUMAN · METERED** — one working window, a first and a second --pod run
 
 ## 1 — The pin
 
-- [ ] 1.1 **HALT CHECK** — `boot.sh` at gpunit `v0.7.0` has the checksum [D2](design.md#d2) names, and the repository still pins `v0.2.0`.
+- [x] 1.1 **HALT CHECK** — `boot.sh` at gpunit `v0.7.0` has the checksum [D2](design.md#d2) names, and the repository still pins `v0.2.0`.
   Verify: `curl -fsSL https://raw.githubusercontent.com/alxb1t/gpunit/v0.7.0/boot/boot.sh | shasum -a 256 | cut -d' ' -f1` prints `517ade6bf20d9869baeb1f1ff1ab45d9ab63c2fa477127ff11dac89611bec842`, and `grep -c 'gpunit@v0.2.0' pyproject.toml` prints `1`.
-- [ ] 1.2 Pin gpunit at `v0.7.0` in `pyproject.toml` and relock with `uv lock --upgrade-package gpunit`, per [D1](design.md#d1).
+- [x] 1.2 Pin gpunit at `v0.7.0` in `pyproject.toml` and relock with `uv lock --upgrade-package gpunit`, per [D1](design.md#d1).
   Verify: `grep -c 'rev=v0.7.0#e3b819b7d0951b0a99c2cab630e97ee2fabd059a' uv.lock` prints `1`, and `uv run python -c 'import gpunit; print(gpunit.__version__)'` prints `0.7.0`.
-- [ ] 1.3 `ADD` `boot.sh` from `v0.7.0` in `Dockerfile`, and move `tests/test_infra.py:298` and `:305` to `v0.7.0`, per [D2](design.md#d2).
+- [x] 1.3 `ADD` `boot.sh` from `v0.7.0` in `Dockerfile`, and move `tests/test_infra.py:298` and `:305` to `v0.7.0`, per [D2](design.md#d2).
   Verify: `grep -c 'ADD --checksum=sha256:517ade6bf20d9869baeb1f1ff1ab45d9ab63c2fa477127ff11dac89611bec842' Dockerfile` prints `1`, and `git grep -c 'v0\.2\.0' -- pyproject.toml uv.lock Dockerfile tests/test_infra.py | wc -l | tr -d ' '` prints `0`.
-- [ ] 1.4 Renew `config/image.json`: `files` from `python3 tools/image_record.py`, `tag` `""`, the `0` × 64 digest; put the same digest in `gpunit.toml`'s `image`; per [D3](design.md#d3).
+- [x] 1.4 Renew `config/image.json`: `files` from `python3 tools/image_record.py`, `tag` `""`, the `0` × 64 digest; put the same digest in `gpunit.toml`'s `image`; per [D3](design.md#d3).
   Verify: `python3 tools/image_record.py | python3 -c 'import json,sys; print(json.load(sys.stdin) == json.load(open("config/image.json"))["files"])'` prints `True`, and `grep -l 'sha256:0\{64\}"' gpunit.toml config/image.json | wc -l | tr -d ' '` prints `2`.
 
 ## 2 — The window

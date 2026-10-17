@@ -2,7 +2,7 @@
 # `image` is `config/image.json`'s reference and digest; a test holds them equal.
 # why each value: 0006-gpunit-integration design D4
 project = "synthetic-portraits"
-image = "ghcr.io/alxb1t/synthetic_portraits@sha256:eb673946e0304568442d75d01996662a8a56772fd2e5a2cda040baa285de861c"
+image = "ghcr.io/alxb1t/synthetic_portraits@sha256:0000000000000000000000000000000000000000000000000000000000000000"
 gpus = [
     "NVIDIA RTX PRO 4500 Blackwell",
     "NVIDIA RTX PRO 4000 Blackwell",
