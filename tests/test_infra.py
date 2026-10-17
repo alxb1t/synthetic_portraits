@@ -221,8 +221,10 @@ def spec_faults(spec: Mapping[str, object], config: Mapping[str, object]) -> lis
     ceiling_s = duration_s(spec.get("ceiling", ""))
     if ceiling_s is None or ceiling_s > 45 * 60:
         faults.append("no ceiling within 45 minutes")
-    # gpunit refuses `volume` beside `volume_gb`, so a kept volume is no window
-    if not (isinstance(spec.get("volume_gb"), int) and duration_s(spec.get("volume_ceiling", ""))):
+    # the window's volume, sized and bounded; a kept `volume` is no window (gpunit refuses it
+    # beside `volume_gb`, but only when `--pod` loads the spec, so the gate faults it here)
+    window = isinstance(spec.get("volume_gb"), int) and duration_s(spec.get("volume_ceiling", ""))
+    if not window or "volume" in spec:
         faults.append("no window volume")
     vram = spec.get("vram_gb")
     if not (isinstance(vram, int) and vram >= 24):
@@ -261,6 +263,7 @@ def test_the_spec_check_catches_a_tag_a_long_ceiling_and_a_missing_floor():
     assert spec_faults({**good, "ceiling": "45"}, config) == ["no ceiling within 45 minutes"]
     assert spec_faults({**good, "volume_gb": "50"}, config) == ["no window volume"]
     assert spec_faults({**good, "volume_ceiling": "4"}, config) == ["no window volume"]
+    assert spec_faults({**good, "volume": "v"}, config) == ["no window volume"]
     bare = {"image": good["image"], "ceiling": "45m", "volume": "v", "vram_gb": 16}
     assert spec_faults(bare, config) == [
         "no window volume",
