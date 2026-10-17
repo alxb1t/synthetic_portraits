@@ -16,7 +16,7 @@ files and the annotated tag are one line — they agree, or the release halts.
 - **`gpunit` is pinned at `v0.7.0`**, for its working window; the image `ADD`s `boot.sh` from the
   same tag, since gpunit refuses a boot script older than `v0.6.0`.
 - **`gpunit.toml` asks for a working window**: `volume_gb = 50` and `volume_ceiling = "4h"` replace
-  the kept volume, which answered 404; the spec check asks for the window.
+  the kept volume, which answered 404; the spec check asks for the window, within 4 hours and 50 GB.
 - **The order of commands** in `CLAUDE.md`'s pod rule and README's `--pod` block: `gpunit volume up
   --yes` before a batch, `gpunit volume down` after, and the RunPod check covers the volume.
 - **The pod image is pinned at `v0.7-rc1`** (`sha256:818332c6…d4ac`), rebuilt from this tree; its
